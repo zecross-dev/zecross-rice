@@ -1,0 +1,6 @@
+# sauvegardes locales (contiennent toute la config dconf de la machine)
+backup/
+# compilation Rust
+target/
+# schéma compilé (regénéré par install.sh)
+gnome-extension/*/schemas/gschemas.compiled

@@ -1,0 +1,14 @@
+{
+  "uuid": "zecross-rice@zecross",
+  "name": "Zecross Rice",
+  "description": "Barre flottante violette, widget d'utilisation Claude, dock stylé et recherche d'applis (moteur zsearch en Rust).",
+  "shell-version": [
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "version": 1,
+  "settings-schema": "org.gnome.shell.extensions.zecross-rice"
+}

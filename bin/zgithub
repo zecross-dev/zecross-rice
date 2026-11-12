@@ -1,0 +1,257 @@
+#!/usr/bin/env -S python3 -I
+"""zgithub — ouvre GitHub sur le dépôt de la fenêtre active (bouton GitHub de la roue Kando).
+
+1. Trouve la fenêtre sur laquelle tu étais (la plus haute de la pile, hors Kando/bureau).
+2. En déduit un dossier de projet :
+     - IntelliJ / JetBrains : « … [Projet] » + recentProjects.xml -> chemin exact
+     - VS Code : « fichier - Dossier - Visual Studio Code » + historique VS Code
+     - Terminal : titre contenant un chemin (~/… ou /…)
+     - sinon : nom trouvé dans le titre comparé aux dépôts git de ton dossier perso
+3. Remonte au dépôt git, lit le remote GitHub (origin), construit l'URL.
+4. Connexion : un dépôt privé est ouvert via github.com/login?return_to=…
+   (déjà connecté -> GitHub redirige direct ; sinon page de connexion puis le dépôt).
+   Aucun dépôt détecté -> github.com (avec connexion si besoin).
+
+Ne passe jamais le titre de fenêtre à un shell : tout est lu ici, via xprop.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import time
+import urllib.parse
+from pathlib import Path
+
+HOME = Path.home()
+CACHE = HOME / ".cache/zgithub"
+IGNORED_CLASSES = {"kando", "gjs", "gnome-shell", ""}
+LOG = CACHE / "last.log"
+
+
+def run(cmd, timeout=5):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
+    except Exception:
+        return ""
+
+
+def xprop_value(win, prop):
+    out = run(["xprop", "-id", win, prop])
+    m = re.search(r"=\s*(.*)$", out)
+    return m.group(1) if m else ""
+
+
+def window_info(win):
+    cls = xprop_value(win, "WM_CLASS")
+    classes = [c.lower() for c in re.findall(r'"([^"]*)"', cls)]
+    name = xprop_value(win, "_NET_WM_NAME")
+    m = re.match(r'^"(.*)"$', name)
+    title = m.group(1).encode().decode("unicode_escape").encode("latin-1").decode("utf-8", "replace") if m else ""
+    wtype = xprop_value(win, "_NET_WM_WINDOW_TYPE")
+    return classes, title, wtype
+
+
+def previous_window():
+    """Fenêtre normale la plus haute qui n'est pas Kando ni le bureau."""
+    stack = run(["xprop", "-root", "_NET_CLIENT_LIST_STACKING"])
+    ids = re.findall(r"0x[0-9a-f]+", stack)
+    for win in reversed(ids):
+        classes, title, wtype = window_info(win)
+        if any(c in IGNORED_CLASSES for c in classes) or "DESKTOP" in wtype or "DOCK" in wtype:
+            continue
+        if title == "Desktop Icons" or title.startswith("Desktop Icons "):
+            continue
+        return classes, title
+    return [], ""
+
+
+# ------------------------------------------------------------- projets connus
+
+def jetbrains_projects():
+    """{nom de projet: chemin} depuis les recentProjects.xml de tous les IDE JetBrains."""
+    projects = {}
+    for xml in glob.glob(str(HOME / ".config/JetBrains/*/options/recentProjects.xml")):
+        try:
+            text = Path(xml).read_text(errors="replace")
+        except OSError:
+            continue
+        for key in re.findall(r'<entry key="([^"]+)"', text):
+            path = key.replace("$USER_HOME$", str(HOME))
+            if os.path.isdir(path):
+                projects.setdefault(os.path.basename(path.rstrip("/")), path)
+        for path, pname in re.findall(r'<entry key="([^"]+)">\s*<value>\s*<RecentProjectMetaInfo[^>]*projectName="([^"]+)"', text):
+            path = path.replace("$USER_HOME$", str(HOME))
+            if os.path.isdir(path):
+                projects.setdefault(pname, path)
+    return projects
+
+
+def vscode_folders():
+    folders = []
+    for storage in (HOME / ".config/Code/User/globalStorage/storage.json",):
+        try:
+            data = json.loads(storage.read_text())
+        except Exception:
+            continue
+        blob = json.dumps(data)
+        for uri in re.findall(r'"file://([^"]+)"', blob):
+            p = urllib.parse.unquote(uri)
+            if os.path.isdir(p):
+                folders.append(p)
+    return folders
+
+
+def git_repos():
+    """Dépôts git sous le dossier perso (mis en cache 24 h)."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cache = CACHE / "repos.txt"
+    if cache.exists() and time.time() - cache.stat().st_mtime < 86400:
+        return [l for l in cache.read_text().splitlines() if l]
+    prune = ["node_modules", ".cache", ".local", ".npm", ".cargo", ".rustup", "snap", ".gradle",
+             ".m2", ".nvm", ".config", ".mozilla", "target", "build", "dist", ".venv", "venv"]
+    expr = []
+    for p in prune:
+        expr += ["-name", p, "-o"]
+    out = run(["find", str(HOME), "-maxdepth", "5", "(", *expr[:-1], ")", "-prune", "-o",
+               "-name", ".git", "-print", "-prune"], timeout=20)
+    repos = sorted({str(Path(l).parent) for l in out.splitlines() if l})
+    cache.write_text("\n".join(repos))
+    return repos
+
+
+# --------------------------------------------------------- titre -> dossier
+
+def candidate_dirs(classes, title):
+    cands = []
+    joined = " ".join(classes)
+
+    if "jetbrains" in joined:
+        m = re.search(r"\[([^\]]+)\]\s*$", title)
+        names = [m.group(1)] if m else []
+        names.append(re.split(r"\s+[–-]\s+", title)[0].strip())
+        projects = jetbrains_projects()
+        for n in names:
+            if n in projects:
+                cands.append(projects[n])
+        cands += [("name", n) for n in names]
+
+    elif "code" in classes or "visual studio code" in title.lower():
+        parts = [p.strip() for p in re.split(r"\s+[-—–]\s+", title)]
+        parts = [p for p in parts if p and p.lower() != "visual studio code"]
+        folders = vscode_folders()
+        for p in reversed(parts):
+            for f in folders:
+                if os.path.basename(f.rstrip("/")) == p:
+                    cands.append(f)
+            cands.append(("name", p))
+
+    # chemins dans le titre (terminaux, IDE…)
+    for m in re.finditer(r"(~|/home/[^/\s]+)(/[^\s:\"'|]*)?", title):
+        p = os.path.expanduser(m.group(0)) if m.group(0).startswith("~") else m.group(0)
+        cands.append(p)
+
+    # en dernier recours : tous les mots du titre
+    for word in re.findall(r"[\w.-]{3,}", title):
+        cands.append(("name", word))
+    return cands
+
+
+def resolve_repo(cands):
+    repos = None
+    for c in cands:
+        if isinstance(c, tuple):
+            if repos is None:
+                repos = git_repos()
+            name = c[1].lower()
+            hits = [r for r in repos if os.path.basename(r).lower() == name]
+            if hits:
+                # plusieurs dépôts du même nom : le plus récemment modifié
+                hits.sort(key=lambda r: os.path.getmtime(r), reverse=True)
+                return hits[0]
+            continue
+        if os.path.isdir(c):
+            top = run(["git", "-C", c, "rev-parse", "--show-toplevel"])
+            if top:
+                return top
+    return None
+
+
+def github_url(repo_dir):
+    remotes = run(["git", "-C", repo_dir, "remote"]).split()
+    for remote in (["origin"] if "origin" in remotes else []) + remotes:
+        url = run(["git", "-C", repo_dir, "remote", "get-url", remote])
+        m = re.search(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", url)
+        if m:
+            return m.group(1), m.group(2)
+    return None
+
+
+def open_pr_url(repo_dir):
+    """URL de la PR OUVERTE associée à la branche actuelle, sinon None."""
+    branch = run(["git", "-C", repo_dir, "branch", "--show-current"])
+    if not branch:
+        return None, None
+    try:
+        out = subprocess.run(["gh", "pr", "view", branch, "--json", "url,state,number"],
+                             capture_output=True, text=True, timeout=8, cwd=repo_dir).stdout
+        pr = json.loads(out) if out.strip() else {}
+    except Exception:
+        pr = {}
+    if pr.get("state") == "OPEN" and str(pr.get("url", "")).startswith("https://github.com/"):
+        return pr["url"], f"PR #{pr.get('number')} ({branch})"
+    return None, branch
+
+
+def is_private(owner, repo):
+    """True/False si gh sait répondre, None sinon."""
+    out = run(["gh", "repo", "view", f"{owner}/{repo}", "--json", "visibility", "-q", ".visibility"], timeout=6)
+    if out:
+        return out.upper() != "PUBLIC"
+    return None
+
+
+def main():
+    classes, title = previous_window()
+    repo_dir = resolve_repo(candidate_dirs(classes, title))
+    target, reason = "https://github.com/", "aucun dépôt détecté"
+    login = True
+    if repo_dir:
+        gh = github_url(repo_dir)
+        if gh:
+            owner, repo = gh
+            path = f"/{owner}/{repo}"
+            private = is_private(owner, repo)
+            login = private is not False  # public confirmé : pas besoin de passer par la connexion
+            target = f"https://github.com{path}"
+            pr_url, pr_info = open_pr_url(repo_dir)
+            if pr_url:
+                target = pr_url
+            reason = (f"{repo_dir} ({'privé' if private else 'public' if private is False else 'visibilité inconnue'})"
+                      f" — {pr_info if pr_url else 'pas de PR ouverte sur ' + str(pr_info)}")
+        else:
+            reason = f"{repo_dir} : pas de remote GitHub"
+
+    if login:
+        ret = urllib.parse.urlparse(target).path or "/"
+        url = "https://github.com/login?return_to=" + urllib.parse.quote(ret, safe="")
+    else:
+        url = target
+
+    CACHE.mkdir(parents=True, exist_ok=True)
+    LOG.write_text(f"fenêtre: {classes} « {title} »\ndépôt: {reason}\nurl: {url}\n")
+    subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--dry-run":
+        c, t = previous_window()
+        d = resolve_repo(candidate_dirs(c, t))
+        print("fenêtre:", c, t)
+        print("dépôt:", d, github_url(d) if d else None)
+        if d:
+            print("PR:", open_pr_url(d))
+    else:
+        main()

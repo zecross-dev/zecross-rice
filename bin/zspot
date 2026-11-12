@@ -1,0 +1,409 @@
+#!/usr/bin/env -S python3 -I
+"""zspot — sous-menu Spotify de la roue Kando.
+
+  zspot setup <client_id>   enregistre le Client ID de ton app Spotify (developer.spotify.com)
+  zspot login               connexion OAuth PKCE (ouvre le navigateur, rien à copier-coller)
+  zspot sync                récupère tes playlists (+ pochettes) et met à jour la roue
+  zspot play <spotify:uri>  joue une playlist/un titre dans l'appli Spotify (MPRIS)
+  zspot random              joue un titre au hasard parmi tes Titres likés
+  zspot toggle|next|prev    lecture/pause, suivant, précédent (MPRIS, sans compte)
+  zspot menu                crée le sous-menu sans connexion
+  zspot add <lien>          ajoute une playlist depuis son lien de partage (sans connexion)
+
+Lecture : via MPRIS (contrôles média Linux) -> fonctionne SANS Premium.
+API Spotify : uniquement en lecture (playlists, titres likés).
+Le jeton est stocké dans ~/.config/zspot/token.json (droits 600).
+"""
+import base64
+import hashlib
+import http.server
+import json
+import os
+import random
+import secrets
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+HOME = Path.home()
+CONF = HOME / ".config/zspot"
+TOKEN = CONF / "token.json"
+SETTINGS = CONF / "settings.json"
+KANDO_MENUS = HOME / ".config/kando/menus.json"
+ICON_DIR = HOME / ".config/kando/icon-themes/zecross-apps"
+BIN = HOME / ".local/bin"
+REDIRECT = "http://127.0.0.1:8888/callback"
+SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
+API = "https://api.spotify.com/v1"
+SYNC_EVERY = 3600
+MAX_PLAYLISTS = 10  # au-delà, la roue devient illisible : le reste va dans « Plus… »
+MPRIS = ["--dest", "org.mpris.MediaPlayer2.spotify", "--object-path", "/org/mpris/MediaPlayer2"]
+
+
+# ----------------------------------------------------------------- stockage
+
+def save_private(path: Path, data: dict):
+    CONF.mkdir(parents=True, exist_ok=True)
+    os.chmod(CONF, 0o700)
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def load(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def client_id() -> str:
+    cid = load(SETTINGS).get("client_id")
+    if not cid:
+        sys.exit("zspot: lance d'abord « zspot setup <client_id> »")
+    return cid
+
+
+def notify(msg: str):
+    subprocess.Popen(["notify-send", "-a", "Spotify", "-i", "spotify-client", "Spotify", msg],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# ------------------------------------------------------------------- OAuth
+
+def login():
+    cid = client_id()
+    verifier = secrets.token_urlsafe(64)[:96]
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    result = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if q.get("state", [""])[0] != state:
+                self.send_response(400); self.end_headers(); return
+            result["code"] = q.get("code", [None])[0]
+            result["error"] = q.get("error", [None])[0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            ok = result["code"] is not None
+            self.wfile.write(("<html><body style='background:#0d0a14;color:#ece4ff;font-family:sans-serif;"
+                              "text-align:center;padding-top:20vh'><h1>"
+                              + ("✅ Spotify connecté à ta roue" if ok else "❌ Connexion refusée")
+                              + "</h1><p>Tu peux fermer cet onglet.</p></body></html>").encode())
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 8888), Handler)
+    url = "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode({
+        "client_id": cid, "response_type": "code", "redirect_uri": REDIRECT, "scope": SCOPES,
+        "state": state, "code_challenge_method": "S256", "code_challenge": challenge,
+    })
+    subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("Navigateur ouvert : valide l'accès Spotify (3 min max)…")
+    srv.timeout = 180
+    deadline = time.time() + 180
+    while "code" not in result and "error" not in result and time.time() < deadline:
+        srv.handle_request()
+    srv.server_close()
+    if not result.get("code"):
+        sys.exit(f"zspot: connexion annulée ({result.get('error') or 'délai dépassé'})")
+    tok = token_request({"grant_type": "authorization_code", "code": result["code"],
+                         "redirect_uri": REDIRECT, "client_id": cid, "code_verifier": verifier})
+    save_private(TOKEN, tok)
+    print("Connecté ✔")
+
+
+def token_request(form: dict) -> dict:
+    req = urllib.request.Request("https://accounts.spotify.com/api/token",
+                                 data=urllib.parse.urlencode(form).encode(),
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        tok = json.loads(r.read())
+    tok["expires_at"] = time.time() + tok.get("expires_in", 3600) - 60
+    return tok
+
+
+def access_token() -> str:
+    tok = load(TOKEN)
+    if not tok:
+        sys.exit("zspot: pas connecté, lance « zspot login »")
+    if time.time() >= tok.get("expires_at", 0):
+        new = token_request({"grant_type": "refresh_token", "refresh_token": tok["refresh_token"],
+                             "client_id": client_id()})
+        new.setdefault("refresh_token", tok["refresh_token"])  # Spotify peut ne pas le renvoyer
+        save_private(TOKEN, new)
+        tok = new
+    return tok["access_token"]
+
+
+def api(path: str, params: dict | None = None) -> dict:
+    url = path if path.startswith("http") else API + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token()}"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read())
+
+
+# ----------------------------------------------------------------- lecture
+
+def mpris_available() -> bool:
+    out = subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
+                          "--object-path", "/org/freedesktop/DBus", "--method",
+                          "org.freedesktop.DBus.NameHasOwner", "org.mpris.MediaPlayer2.spotify"],
+                         capture_output=True, text=True).stdout
+    return "true" in out
+
+
+def ensure_spotify(x=None, y=None):
+    if mpris_available():
+        return True
+    args = [str(BIN / "zlaunch"), "spotify.desktop"] + ([x, y] if x and y else [])
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(60):  # Spotify met quelques secondes à démarrer
+        time.sleep(0.25)
+        if mpris_available():
+            time.sleep(1.0)  # laisse l'appli finir de charger
+            return True
+    return False
+
+
+def context_name(uri: str) -> str:
+    if uri == "spotify:collection:tracks":
+        return "Titres likés"
+    for pl in manual_playlists() + load(CONF / "playlists_cache.json").get("items", []):
+        if pl.get("uri") == uri:
+            return pl.get("name", "Playlist")
+    return "Titre au hasard" if uri.startswith("spotify:track:") else "Spotify"
+
+
+def write_context(uri: str, name: str | None = None):
+    """Mémorise la playlist lancée (affichée par le widget Spotify de la barre)."""
+    d = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "zecross-launch"
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / "spotify-context.json.tmp"
+    tmp.write_text(json.dumps({"uri": uri, "name": name or context_name(uri), "t": time.time()}))
+    os.replace(tmp, d / "spotify-context.json")
+
+
+def play(uri: str, x=None, y=None, context: str | None = None):
+    if not uri.startswith("spotify:"):
+        sys.exit("zspot: URI Spotify attendue (spotify:playlist:… ou spotify:track:…)")
+    if not ensure_spotify(x, y):
+        notify("Impossible de démarrer Spotify")
+        return
+    subprocess.run(["gdbus", "call", "--session", *MPRIS, "--method",
+                    "org.mpris.MediaPlayer2.Player.OpenUri", uri], capture_output=True)
+    write_context(uri, context)
+    maybe_background_sync()
+
+
+def control(method: str, x=None, y=None):
+    """PlayPause / Next / Previous via MPRIS (démarre Spotify si besoin)."""
+    if not ensure_spotify(x, y):
+        notify("Impossible de démarrer Spotify")
+        return
+    subprocess.run(["gdbus", "call", "--session", *MPRIS, "--method",
+                    f"org.mpris.MediaPlayer2.Player.{method}"], capture_output=True)
+
+
+def random_track(x=None, y=None):
+    if not TOKEN.exists():
+        manual = manual_playlists()
+        if not manual:
+            notify("🎲 Ajoute une playlist (zspot add <lien>) ou connecte ton compte")
+            return
+        pl = random.choice(manual)
+        notify(f"🎲 Playlist au hasard : {pl['name']}")
+        play(pl["uri"], x, y, pl["name"])
+        return
+    total = api("/me/tracks", {"limit": 1}).get("total", 0)
+    if total == 0:
+        notify("Aucun titre liké : ajoute des titres à « Titres likés »")
+        return
+    item = api("/me/tracks", {"limit": 1, "offset": random.randrange(total)})["items"][0]["track"]
+    artists = ", ".join(a["name"] for a in item.get("artists", []))
+    notify(f"🎲 {item['name']} — {artists}")
+    play(item["uri"], x, y, "Titres likés (au hasard)")
+
+
+# ------------------------------------------------- playlists ajoutées à la main
+
+def add_playlist(link: str):
+    """Ajoute une playlist depuis son lien de partage (sans compte développeur, via oEmbed)."""
+    import re
+    m = re.search(r"playlist[/:]([A-Za-z0-9]{22})", link)
+    if not m:
+        sys.exit("zspot: lien de playlist Spotify invalide")
+    pid = m.group(1)
+    clean = f"https://open.spotify.com/playlist/{pid}"
+    with urllib.request.urlopen("https://open.spotify.com/oembed?" + urllib.parse.urlencode({"url": clean}), timeout=15) as r:
+        meta = json.loads(r.read())
+    pl = {"id": pid, "uri": f"spotify:playlist:{pid}", "name": meta.get("title") or "Playlist",
+          "images": [{"url": meta["thumbnail_url"], "width": 300}] if meta.get("thumbnail_url") else []}
+    st = load(SETTINGS)
+    manual = [x for x in st.get("manual_playlists", []) if x["id"] != pid] + [pl]
+    st["manual_playlists"] = manual
+    save_private(SETTINGS, st)
+    print(f"Ajoutée : {pl['name']}")
+
+
+def manual_playlists():
+    return load(SETTINGS).get("manual_playlists", [])
+
+
+# ---------------------------------------------------------- roue Kando
+
+def download_cover(pl: dict) -> str | None:
+    imgs = sorted(pl.get("images") or [], key=lambda i: i.get("width") or 0)
+    img = next((i for i in imgs if (i.get("width") or 0) >= 100), imgs[-1] if imgs else None)
+    if not img:
+        return None
+    name = f"spotify-pl-{pl['id']}.jpg"
+    dest = ICON_DIR / name
+    if not dest.exists():
+        try:
+            with urllib.request.urlopen(img["url"], timeout=15) as r:
+                dest.write_bytes(r.read())
+        except Exception:
+            return None
+    return name
+
+
+def cmd(*args) -> str:
+    # arguments déjà sûrs (URI Spotify validées) ; coordonnées = placeholders Kando numériques
+    return " ".join([str(BIN / "zspot"), *args, "{{pointer_x}}", "{{pointer_y}}"])
+
+
+def button(name, icon, theme, command, key=None):
+    b = {"type": "button", "name": name, "iconTheme": theme, "icon": icon,
+         "selectWorkflow": {"actions": [{"type": "execute-command", "command": command,
+                                         "detached": True, "isolated": False}]}}
+    if key:
+        b["selectWorkflow"]["quickSelectKey"] = key
+    return b
+
+
+def build_submenu(playlists=None):
+    def pl_button(p):
+        cover = download_cover(p)
+        return button(p["name"][:40], cover or "queue_music", "zecross-apps" if cover else "material-symbols-rounded",
+                      cmd("play", p["uri"]))
+
+    children = [
+        button("Ouvrir Spotify", "spotify", "simple-icons-colored", str(BIN / "zspotify") + " {{pointer_x}} {{pointer_y}}", "O"),
+        button("Lecture / Pause", "play_pause", "material-symbols-rounded", cmd("toggle"), "P"),
+        button("Suivant", "skip_next", "material-symbols-rounded", cmd("next"), "N"),
+        button("Précédent", "skip_previous", "material-symbols-rounded", cmd("prev"), "B"),
+        button("Titres likés", "favorite", "material-symbols-rounded", cmd("play", "spotify:collection:tracks"), "L"),
+        button("Titre au hasard", "casino", "material-symbols-rounded", cmd("random"), "R"),
+    ]
+    seen = set()
+    merged = []
+    for p in manual_playlists() + (playlists or []):
+        if p["id"] not in seen:
+            seen.add(p["id"])
+            merged.append(p)
+    playlists = merged
+    first, rest = playlists[:MAX_PLAYLISTS], playlists[MAX_PLAYLISTS:]
+    if first:
+        children.append({"type": "submenu", "name": "Playlists", "iconTheme": "material-symbols-rounded",
+                         "icon": "queue_music", "selectWorkflow": {"quickSelectKey": "Y", "actions": []}, "children": [pl_button(p) for p in first] + (
+                             [{"type": "submenu", "name": "Plus…", "iconTheme": "material-symbols-rounded",
+                               "icon": "more_horiz", "children": [pl_button(p) for p in rest[:16]]}] if rest else [])})
+    return {"type": "submenu", "name": "Spotify", "iconTheme": "simple-icons-colored", "icon": "spotify",
+            "selectWorkflow": {"quickSelectKey": "S", "actions": []}, "children": children}
+
+
+def write_submenu(sub):
+    menus = json.loads(KANDO_MENUS.read_text())
+    root = menus["menus"][0]["root"]["children"]
+    for i, c in enumerate(root):
+        if c.get("name") == "Spotify":
+            root[i] = sub
+            break
+    else:
+        root.append(sub)
+    tmp = KANDO_MENUS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(menus, indent=2, ensure_ascii=False))
+    os.replace(tmp, KANDO_MENUS)
+
+
+def sync(quiet=False):
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    playlists, url = [], "/me/playlists"
+    params = {"limit": 50}
+    while url:
+        page = api(url, params)
+        playlists += [p for p in page.get("items", []) if p and p.get("uri", "").startswith("spotify:playlist:")]
+        url, params = page.get("next"), None
+    write_submenu(build_submenu(playlists))
+    save_private(CONF / "playlists_cache.json", {"items": [{"id": p["id"], "uri": p["uri"], "name": p["name"]} for p in playlists]})
+    st = load(SETTINGS)
+    st["last_sync"] = time.time()
+    save_private(SETTINGS, st)
+    if not quiet:
+        print(f"{len(playlists)} playlists synchronisées dans la roue.")
+
+
+def maybe_background_sync():
+    if time.time() - load(SETTINGS).get("last_sync", 0) > SYNC_EVERY and TOKEN.exists():
+        subprocess.Popen([str(BIN / "zspot"), "sync", "--quiet"], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+# -------------------------------------------------------------------- main
+
+def coords(args):
+    xy = [a for a in args if a.isdigit()]
+    return (xy[0], xy[1]) if len(xy) >= 2 else (None, None)
+
+
+def main():
+    a = sys.argv[1:]
+    if not a:
+        sys.exit(__doc__)
+    try:
+        if a[0] == "setup" and len(a) > 1:
+            st = load(SETTINGS)
+            st["client_id"] = a[1].strip()
+            save_private(SETTINGS, st)
+            print("Client ID enregistré. Lance maintenant : zspot login")
+        elif a[0] == "login":
+            login()
+            sync()
+        elif a[0] == "sync":
+            sync(quiet="--quiet" in a)
+        elif a[0] == "play" and len(a) > 1:
+            play(a[1], *coords(a[2:]))
+        elif a[0] == "random":
+            random_track(*coords(a[1:]))
+        elif a[0] in ("toggle", "next", "prev"):
+            control({"toggle": "PlayPause", "next": "Next", "prev": "Previous"}[a[0]], *coords(a[1:]))
+        elif a[0] == "add" and len(a) > 1:
+            add_playlist(a[1])
+            write_submenu(build_submenu())
+        elif a[0] == "menu":
+            write_submenu(build_submenu())
+            print("Sous-menu Spotify créé (sans playlists : connecte ton compte pour les ajouter).")
+        else:
+            sys.exit(__doc__)
+    except urllib.error.HTTPError as e:
+        msg = f"API Spotify : HTTP {e.code}"
+        notify(msg)
+        sys.exit("zspot: " + msg)
+
+
+if __name__ == "__main__":
+    main()

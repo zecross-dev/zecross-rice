@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# zlaunch <desktop-id> [x y] — lance une appli depuis la roue Kando et note l'écran
+# visé (position du curseur) pour que l'extension zecross-rice y place la fenêtre.
+id="$1"; x="$2"; y="$3"
+case "$id" in *[!A-Za-z0-9._-]*|'') echo "id invalide" >&2; exit 1;; esac
+case "$x" in ''|*[!0-9]*) x=null;; esac
+case "$y" in ''|*[!0-9]*) y=null;; esac
+d="${XDG_RUNTIME_DIR:-/tmp}/zecross-launch"
+mkdir -p "$d"
+printf '{"id":"%s","x":%s,"y":%s,"t":%s}\n' "$id" "$x" "$y" "$(date +%s%3N)" > "$d/launch.json.tmp"
+mv -f "$d/launch.json.tmp" "$d/launch.json"
+exec gtk-launch "$id"

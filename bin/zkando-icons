@@ -1,0 +1,47 @@
+#!/usr/bin/env -S gjs -m
+// zkando-icons — reconstruit les icônes de la roue Kando à partir des applis installées.
+// Pour chaque bouton « zlaunch <id.desktop> » du menu : copie l'icône système de l'appli
+// dans ~/.config/kando/icon-themes/zecross-apps/ et retire les boutons d'applis absentes.
+import Gtk from 'gi://Gtk?version=3.0';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+
+Gtk.init(null);
+const home = GLib.get_home_dir();
+const menusPath = `${home}/.config/kando/menus.json`;
+const iconDir = `${home}/.config/kando/icon-themes/zecross-apps`;
+GLib.mkdir_with_parents(iconDir, 0o755);
+const theme = Gtk.IconTheme.get_default();
+
+const [, bytes] = GLib.file_get_contents(menusPath);
+const menus = JSON.parse(new TextDecoder().decode(bytes));
+const root = menus.menus[0].root;
+let removed = [];
+
+function fix(children) {
+    return children.filter(item => {
+        if (item.children)
+            item.children = fix(item.children);
+        const cmd = item.selectWorkflow?.actions?.[0]?.command ?? '';
+        const m = cmd.match(/zlaunch (\S+\.desktop)/);
+        if (!m || item.iconTheme !== 'zecross-apps')
+            return true;
+        const info = Gio.DesktopAppInfo.new(m[1]);
+        if (!info) {
+            removed.push(item.name);
+            return false;
+        }
+        const gicon = info.get_icon();
+        const ii = gicon ? theme.lookup_by_gicon(gicon, 256, Gtk.IconLookupFlags.FORCE_SIZE) : null;
+        const src = ii?.get_filename();
+        if (src) {
+            const dest = `${iconDir}/${item.icon}`;
+            Gio.File.new_for_path(src).copy(Gio.File.new_for_path(dest), Gio.FileCopyFlags.OVERWRITE, null, null);
+        }
+        return true;
+    });
+}
+
+root.children = fix(root.children);
+GLib.file_set_contents(menusPath, JSON.stringify(menus, null, 2));
+print(`Icônes reconstruites.${removed.length ? ` Applis absentes retirées de la roue : ${removed.join(', ')}` : ''}`);

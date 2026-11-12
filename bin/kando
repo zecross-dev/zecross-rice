@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Lanceur Kando (sans sandbox Chromium : pas de chrome-sandbox setuid root)
+exec "$HOME/.local/opt/kando/kando" --no-sandbox "$@"

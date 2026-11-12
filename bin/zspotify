@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Bouton Spotify de la roue : appli si installée (sur l'écran de la roue), sinon lecteur web.
+for id in spotify.desktop spotify_spotify.desktop com.spotify.Client.desktop; do
+  for dir in "$HOME/.local/share/applications" /usr/share/applications /var/lib/snapd/desktop/applications /var/lib/flatpak/exports/share/applications; do
+    [ -f "$dir/$id" ] && exec "$HOME/.local/bin/zlaunch" "$id" "$1" "$2"
+  done
+done
+exec xdg-open https://open.spotify.com

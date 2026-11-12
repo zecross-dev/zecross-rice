@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.zecross-rice" path="/org/gnome/shell/extensions/zecross-rice/">
+    <key name="open-launcher" type="as">
+      <default><![CDATA[['<Super>f']]]></default>
+      <summary>Raccourci pour ouvrir la recherche d'applications</summary>
+    </key>
+    <key name="terminal-switcher" type="as">
+      <default><![CDATA[['<Super>space']]]></default>
+      <summary>Raccourci pour afficher et choisir parmi les terminaux ouverts</summary>
+    </key>
+  </schema>
+</schemalist>
