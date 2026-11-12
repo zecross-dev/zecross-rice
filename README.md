@@ -42,6 +42,13 @@ Retour arrière : `./restaurer.sh` (réglages sauvegardés dans `backup/` à cha
     dans les réglages de Kando, avec l'extension GNOME « Kando Integration ».
   - le rechargement à chaud de l'extension marche, mais le premier chargement demande une reconnexion.
 
+## Terminal sans molette
+
+La barre de défilement du terminal est toujours visible. Pour qu'elle marche aussi dans **Claude Code**,
+passer en affichage classique (la conversation va dans l'historique du terminal au lieu d'un écran plein écran) :
+`/tui default` dans Claude Code, ou `"tui": "default"` dans `~/.claude/settings.json`.
+En plein écran, seuls `PgUp` / `PgDn` / `Ctrl+Home` / `Ctrl+End` font défiler.
+
 ## Spotify
 
 - Sans compte développeur : `zspot add <lien de playlist>` ajoute une playlist à la roue.
