@@ -426,3 +426,90 @@
 
 /* espace entre l'îlot Claude et l'îlot système */
 #panel .zr-claude-button { margin-right: 14px; }
+
+/* ------------------------------------------ Alt+Tab (style Super+Espace) ---- */
+.switcher-popup {
+  spacing: 20px;
+}
+
+.switcher-list {
+  background-color: rgba(10, 8, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 24px;
+  box-shadow: 0 0 18px 2px rgba(255, 255, 255, 0.35);
+  padding: 14px;
+}
+
+.switcher-list .switcher-list-item-container {
+  spacing: 10px;
+}
+
+.switcher-list .item-box {
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 10px;
+  color: #ffffff;
+  transition-duration: 120ms;
+}
+
+.switcher-list .item-box:hover {
+  background-color: rgba(185, 140, 255, 0.14);
+}
+
+.switcher-list .item-box:focus {
+  box-shadow: none !important;
+}
+
+.switcher-list .item-box:selected,
+.switcher-list .item-box:selected:hover,
+.switcher-list .item-box:selected:focus {
+  background-color: rgba(185, 140, 255, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 10px rgba(185, 140, 255, 0.55) !important;
+}
+
+.switcher-list .item-box StLabel {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.switcher-list .item-box:selected StLabel {
+  color: #e9ddff;
+}
+
+.switcher-list .separator {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+.switcher-list .thumbnail-box {
+  padding: 4px;
+  spacing: 8px;
+}
+
+.switcher-list .thumbnail {
+  border-radius: 12px;
+}
+
+.switcher-arrow {
+  color: rgba(217, 194, 255, 0.6);
+}
+
+.switcher-arrow:highlighted {
+  color: #ffffff;
+}
+
+/* titre de la fenêtre sélectionnée, sous la liste */
+.switcher-popup StLabel {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+/* légende sous les miniatures (Alt+² / vue d'ensemble) */
+.window-caption {
+  background-color: rgba(22, 20, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  color: #ffffff;
+  font-weight: bold;
+}
