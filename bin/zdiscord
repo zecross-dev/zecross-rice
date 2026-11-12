@@ -421,14 +421,33 @@ def daemon():
 
 # --------------------------------------------------------------------- main
 
+def ask_credentials():
+    """Au clavier dans un vrai terminal ; sinon (ex. lancé sans terminal) via des fenêtres zenity."""
+    if sys.stdin.isatty():
+        cid = input("Client ID de ton app Discord : ").strip()
+        return cid, getpass.getpass("Client secret (non affiché) : ").strip()
+    import shutil
+    import subprocess
+    if not shutil.which("zenity"):
+        sys.exit("zdiscord: lance « zdiscord setup » dans un terminal (pas de saisie possible ici)")
+    def ask(*args):
+        r = subprocess.run(["zenity", *args, "--title=Discord — configuration"], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    cid = ask("--entry", "--text=Client ID de ton app Discord :")
+    secret = ask("--password", "--text=Client Secret (masqué) :") if cid else ""
+    return cid, secret
+
+
+
 def main():
     a = sys.argv[1:]
     if not a:
         sys.exit(__doc__)
     try:
         if a[0] == "setup":
-            cid = input("Client ID de ton app Discord : ").strip()
-            secret = getpass.getpass("Client secret (non affiché) : ").strip()
+            cid, secret = ask_credentials()
+            if not cid.isdigit() or not secret:
+                sys.exit("zdiscord: Client ID (chiffres) et secret obligatoires — rien n'a été enregistré")
             save_private(SETTINGS, {"client_id": cid, "client_secret": secret})
             print("Enregistré. Lance maintenant : zdiscord login")
         elif a[0] == "login":
