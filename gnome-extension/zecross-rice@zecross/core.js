@@ -1032,7 +1032,7 @@ class PanelIslands {
         this._laterId = 0;
         const panel = Main.panel;
         this._boxes = [panel._leftBox, panel._centerBox, panel._rightBox];
-        for (const name of ['left', 'center', 'claude', 'system']) {
+        for (const name of ['left', 'discord', 'center', 'claude', 'system']) {
             const w = new St.Widget({style_class: `zr-island zr-island-${name}`, reactive: false, visible: false});
             Main.layoutManager.uiGroup.insert_child_below(w, Main.layoutManager.panelBox);
             this._islands.set(name, w);
@@ -1096,8 +1096,10 @@ class PanelIslands {
         const claudeBtn = panel.statusArea['zr-claude'];
         const claude = claudeBtn?.container;
         const right = panel._rightBox.get_children();
+        const discordBtn = panel.statusArea['zr-discord'];
         const groups = {
-            left: panel._leftBox.get_children(),
+            left: panel._leftBox.get_children().filter(c => c !== discordBtn?.container),
+            discord: discordBtn ? [discordBtn] : [],
             center: panel._centerBox.get_children(),
             // le bouton (sans sa marge) : la marge CSS crée l'espace entre les deux îlots de droite
             claude: claudeBtn ? [claudeBtn] : [],
@@ -1332,6 +1334,271 @@ class SpotifyIndicator extends PanelMenu.Button {
     }
 });
 
+
+// --------------------------------------------------------- Îlot Discord (vocaux)
+
+// Le RPC Discord est géré par le script multiplateforme ~/.local/bin/zdiscord (mode « daemon ») :
+// il écrit une ligne JSON par changement et lit nos commandes sur stdin.
+const DiscordIndicator = GObject.registerClass(
+class DiscordIndicator extends PanelMenu.Button {
+    _init() {
+        super._init(0.5, 'Discord');
+        this.add_style_class_name('zr-discord-button');
+        this._state = {ok: false, reason: 'offline'};
+
+        const box = new St.BoxLayout({style_class: 'zr-discord-box', y_align: Clutter.ActorAlign.CENTER});
+        this._logo = new St.Icon({icon_name: 'discord', fallback_icon_name: 'call-start-symbolic', style_class: 'zr-discord-logo'});
+        this._me = new St.Bin({style_class: 'zr-dc-me', width: 22, height: 22, visible: false, y_align: Clutter.ActorAlign.CENTER});
+        box.add_child(this._logo);
+        box.add_child(this._me);
+        this._chanLabel = new St.Label({style_class: 'zr-discord-chan', y_align: Clutter.ActorAlign.CENTER, visible: false});
+        this._chanLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        this._avatars = new St.BoxLayout({style_class: 'zr-discord-avatars', y_align: Clutter.ActorAlign.CENTER});
+        this._selfIcons = new St.BoxLayout({style_class: 'zr-discord-self', y_align: Clutter.ActorAlign.CENTER});
+        box.add_child(this._chanLabel);
+        box.add_child(this._avatars);
+        box.add_child(this._selfIcons);
+        this.add_child(box);
+
+        // ---- menu
+        this.menu.box.add_style_class_name('zr-discord-menu');
+        this._header = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
+        this._header.add_style_class_name('zr-dc-header');
+        this.menu.addMenuItem(this._header);
+        this._membersSection = new PopupMenu.PopupMenuSection();
+        this.menu.addMenuItem(this._membersSection);
+
+        const ctrlItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        const ctrls = new St.BoxLayout({style_class: 'zr-dc-controls', x_expand: true, x_align: Clutter.ActorAlign.CENTER});
+        const mk = (icon, label, cmd, cls = '') => {
+            const b = new St.Button({style_class: `zr-dc-btn ${cls}`, can_focus: true, toggle_mode: false});
+            const inner = new St.BoxLayout({vertical: true, style_class: 'zr-dc-btn-box'});
+            const ic = new St.Icon({icon_name: icon, style_class: 'zr-dc-btn-icon', x_align: Clutter.ActorAlign.CENTER});
+            inner.add_child(ic);
+            inner.add_child(new St.Label({text: label, style_class: 'zr-dc-btn-label', x_align: Clutter.ActorAlign.CENTER}));
+            b.set_child(inner);
+            b._icon = ic;
+            b.connect('clicked', () => this._send({cmd}));
+            ctrls.add_child(b);
+            return b;
+        };
+        this._muteBtn = mk('microphone-sensitivity-high-symbolic', 'Micro', 'mute');
+        this._deafBtn = mk('audio-headphones-symbolic', 'Casque', 'deaf');
+        this._leaveBtn = mk('call-stop-symbolic', 'Quitter', 'disconnect', 'zr-dc-leave');
+        ctrlItem.add_child(ctrls);
+        this.menu.addMenuItem(ctrlItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._joinMenu = new PopupMenu.PopupSubMenuMenuItem('Rejoindre un vocal', true);
+        this._joinMenu.icon.icon_name = 'system-users-symbolic';
+        this.menu.addMenuItem(this._joinMenu);
+        this._joinMenu.menu.connect('open-state-changed', (_m, open) => {
+            if (open)
+                this._loadChannels();
+        });
+
+        this._status = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
+        this._status.add_style_class_name('zr-dc-status');
+        this.menu.addMenuItem(this._status);
+
+        this._bin = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'zdiscord']);
+        this._cancel = new Gio.Cancellable();
+        this._spawn();
+        this._render();
+    }
+
+    // ------------------------------------------------------------ démon
+    _spawn() {
+        if (this._destroyed)
+            return;
+        try {
+            this._proc = Gio.Subprocess.new(['python3', this._bin, 'daemon'],
+                Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+        } catch (e) {
+            this._state = {ok: false, reason: 'missing', message: `zdiscord introuvable (${this._bin})`};
+            this._render();
+            return;
+        }
+        this._stdin = this._proc.get_stdin_pipe();
+        this._reader = new Gio.DataInputStream({base_stream: this._proc.get_stdout_pipe()});
+        this._readLine();
+    }
+
+    _readLine() {
+        this._reader.read_line_async(GLib.PRIORITY_DEFAULT, this._cancel, (stream, res) => {
+            let line;
+            try {
+                [line] = stream.read_line_finish_utf8(res);
+            } catch (_e) {
+                return; // annulé
+            }
+            if (line === null) {
+                // démon arrêté : on relance dans 5 s
+                this._respawnId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
+                    this._respawnId = 0;
+                    this._spawn();
+                    return GLib.SOURCE_REMOVE;
+                });
+                return;
+            }
+            try {
+                this._onMessage(JSON.parse(line));
+            } catch (e) {
+                logError(e, 'zecross-rice: message zdiscord invalide');
+            }
+            this._readLine();
+        });
+    }
+
+    _send(obj) {
+        if (!this._stdin)
+            return;
+        const bytes = new TextEncoder().encode(`${JSON.stringify(obj)}\n`);
+        this._stdin.write_bytes_async(new GLib.Bytes(bytes), GLib.PRIORITY_DEFAULT, null, (s, r) => {
+            try {
+                s.write_bytes_finish(r);
+            } catch (_e) {}
+        });
+    }
+
+    _onMessage(msg) {
+        if (msg.type === 'state') {
+            this._state = msg;
+            this._render();
+        } else if (msg.type === 'channels') {
+            this._fillChannels(msg.items ?? []);
+        } else if (msg.type === 'error') {
+            this._status.label.text = `Erreur : ${msg.message}`;
+            this._status.visible = true;
+        }
+    }
+
+    // ------------------------------------------------------------ rendu
+    _avatar(m, size, cls) {
+        const bin = new St.Bin({style_class: cls, width: size, height: size});
+        if (m.avatar_file) {
+            const uri = Gio.File.new_for_path(m.avatar_file).get_uri();
+            bin.style = `background-image: url("${uri}"); background-size: cover;`;
+        }
+        if (m.speaking)
+            bin.add_style_class_name('zr-speaking');
+        return bin;
+    }
+
+    _render() {
+        const st = this._state;
+        const inVoice = st.ok && st.in_voice;
+        this._avatars.destroy_all_children();
+        this._selfIcons.destroy_all_children();
+        this._membersSection.removeAll();
+        this._status.visible = false;
+
+        this._chanLabel.visible = inVoice;
+        this._muteBtn.visible = this._deafBtn.visible = st.ok;
+        this._leaveBtn.visible = inVoice;
+        this._joinMenu.visible = st.ok;
+
+        if (!st.ok) {
+            this._me.visible = false;
+            this._logo.visible = true;
+            this._header.label.text = 'Discord';
+            this._status.label.text = st.reason === 'setup'
+                ? 'À configurer : « zdiscord setup » puis « zdiscord login »'
+                : st.reason === 'missing' ? st.message : 'Discord n\'est pas lancé';
+            this._status.visible = true;
+            this.remove_style_class_name('zr-discord-live');
+            return;
+        }
+
+        // ma photo de profil à la place du logo
+        const me = st.me ?? {};
+        if (me.avatar_file) {
+            this._me.style = `background-image: url("${Gio.File.new_for_path(me.avatar_file).get_uri()}"); background-size: cover;`;
+            this._me.visible = true;
+            this._logo.visible = false;
+        }
+        const self = st.self ?? {};
+        this._muteBtn._icon.icon_name = self.mute ? 'microphone-sensitivity-muted-symbolic' : 'microphone-sensitivity-high-symbolic';
+        this._deafBtn._icon.icon_name = self.deaf ? 'audio-volume-muted-symbolic' : 'audio-headphones-symbolic';
+        for (const [b, on] of [[this._muteBtn, self.mute], [this._deafBtn, self.deaf]]) {
+            if (on)
+                b.add_style_class_name('zr-dc-on');
+            else
+                b.remove_style_class_name('zr-dc-on');
+        }
+        if (self.mute)
+            this._selfIcons.add_child(new St.Icon({icon_name: 'microphone-sensitivity-muted-symbolic', style_class: 'zr-discord-selficon'}));
+        if (self.deaf)
+            this._selfIcons.add_child(new St.Icon({icon_name: 'audio-volume-muted-symbolic', style_class: 'zr-discord-selficon'}));
+
+        if (!inVoice) {
+            this._header.label.text = 'Pas dans un vocal';
+            this.remove_style_class_name('zr-discord-live');
+            return;
+        }
+        this.add_style_class_name('zr-discord-live');
+        const ch = st.channel;
+        this._chanLabel.text = ch.name;
+        this._header.label.text = ch.guild ? `🔊 ${ch.name} — ${ch.guild}` : `🔊 ${ch.name}`;
+
+        const members = st.members ?? [];
+        members.slice(0, 5).forEach(m => this._avatars.add_child(this._avatar(m, 20, 'zr-dc-avatar-sm')));
+        if (members.length > 5)
+            this._avatars.add_child(new St.Label({text: `+${members.length - 5}`, style_class: 'zr-discord-more', y_align: Clutter.ActorAlign.CENTER}));
+
+        for (const m of members) {
+            const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false, style_class: 'zr-dc-member'});
+            item.add_child(this._avatar(m, 28, 'zr-dc-avatar'));
+            const name = new St.Label({text: m.name, style_class: 'zr-dc-name', y_align: Clutter.ActorAlign.CENTER, x_expand: true});
+            if (m.speaking)
+                name.add_style_class_name('zr-speaking-text');
+            item.add_child(name);
+            if (m.muted)
+                item.add_child(new St.Icon({icon_name: 'microphone-sensitivity-muted-symbolic', style_class: 'zr-dc-state'}));
+            if (m.deafened)
+                item.add_child(new St.Icon({icon_name: 'audio-volume-muted-symbolic', style_class: 'zr-dc-state'}));
+            this._membersSection.addMenuItem(item);
+        }
+    }
+
+    _loadChannels() {
+        this._joinMenu.menu.removeAll();
+        const loading = new PopupMenu.PopupMenuItem('Recherche des vocaux actifs…', {reactive: false});
+        this._joinMenu.menu.addMenuItem(loading);
+        this._send({cmd: 'channels'});
+    }
+
+    _fillChannels(items) {
+        this._joinMenu.menu.removeAll();
+        const current = this._state.channel?.id;
+        const list = items.filter(c => c.id !== current);
+        if (list.length === 0) {
+            this._joinMenu.menu.addMenuItem(new PopupMenu.PopupMenuItem('Personne en vocal pour l\'instant', {reactive: false}));
+            return;
+        }
+        for (const c of list) {
+            const who = c.members.slice(0, 4).join(', ') + (c.members.length > 4 ? ` +${c.members.length - 4}` : '');
+            const item = new PopupMenu.PopupMenuItem(`${c.name} — ${c.guild}`);
+            item.add_style_class_name('zr-dc-join');
+            const sub = new St.Label({text: who, style_class: 'zr-dc-join-who', y_align: Clutter.ActorAlign.CENTER});
+            item.add_child(sub);
+            item.connect('activate', () => this._send({cmd: 'join', id: c.id}));
+            this._joinMenu.menu.addMenuItem(item);
+        }
+    }
+
+    destroy() {
+        this._destroyed = true;
+        this._cancel.cancel();
+        if (this._respawnId)
+            GLib.source_remove(this._respawnId);
+        try {
+            this._proc?.force_exit();
+        } catch (_e) {}
+        super.destroy();
+    }
+});
+
 // ---------------------------------------------------------------- Extension
 
 export default class ZecrossRiceCore {
@@ -1347,6 +1614,8 @@ export default class ZecrossRiceCore {
         Main.panel.addToStatusArea('zr-claude', this._indicator, 0, 'right');
         this._spotify = new SpotifyIndicator();
         Main.panel.addToStatusArea('zr-spotify', this._spotify, 1, 'left');
+        this._discord = new DiscordIndicator();
+        Main.panel.addToStatusArea('zr-discord', this._discord, 2, 'left');
         this._islands = new PanelIslands();
 
         this._dockSearch = new DockSearch(() => this.openLauncher());
@@ -1405,6 +1674,8 @@ export default class ZecrossRiceCore {
         this._islands = null;
         this._spotify?.destroy();
         this._spotify = null;
+        this._discord?.destroy();
+        this._discord = null;
         this._indicator?.destroy();
         this._indicator = null;
         this._settings = null;

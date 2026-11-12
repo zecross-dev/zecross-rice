@@ -513,3 +513,48 @@
   color: #ffffff;
   font-weight: bold;
 }
+
+/* ------------------------------------------------------- Îlot Discord ---- */
+#panel .zr-discord-button { margin-left: 14px; }
+.zr-discord-box { spacing: 7px; }
+.zr-discord-logo { icon-size: 16px; }
+.zr-discord-chan { max-width: 140px; color: #d9c2ff; }
+.zr-discord-avatars { spacing: 3px; }
+.zr-dc-avatar-sm, .zr-dc-avatar {
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.zr-speaking { border-color: #b98cff; box-shadow: 0 0 6px rgba(185, 140, 255, 0.9); }
+.zr-discord-more { color: rgba(255, 255, 255, 0.7); font-size: 11px; }
+.zr-discord-self { spacing: 2px; }
+.zr-discord-selficon { icon-size: 13px; color: #fb7185; }
+
+.zr-discord-menu { min-width: 300px; }
+.zr-dc-header { color: #ffffff; font-weight: bold; }
+.zr-dc-member { spacing: 10px; padding-top: 4px; padding-bottom: 4px; }
+.zr-dc-name { color: #ece4ff; }
+.zr-speaking-text { color: #b98cff; font-weight: bold; }
+.zr-dc-state { icon-size: 14px; color: #fb7185; }
+.zr-dc-controls { spacing: 12px; padding-top: 4px; }
+.zr-dc-btn {
+  border-radius: 14px;
+  padding: 8px 14px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.zr-dc-btn:hover, .zr-dc-btn:focus { background-color: rgba(185, 140, 255, 0.3); border-color: #ffffff; }
+.zr-dc-btn.zr-dc-on { background-color: rgba(251, 113, 133, 0.35); border-color: #fb7185; }
+.zr-dc-leave:hover { background-color: rgba(219, 39, 119, 0.5); }
+.zr-dc-btn-box { spacing: 3px; }
+.zr-dc-btn-icon { icon-size: 18px; color: #ffffff; }
+.zr-dc-btn-label { font-size: 11px; color: rgba(255, 255, 255, 0.8); }
+.zr-dc-join-who { color: rgba(217, 194, 255, 0.65); font-size: 12px; padding-left: 12px; }
+.zr-dc-status { color: rgba(255, 255, 255, 0.55); font-size: 12px; }
+
+.zr-dc-me {
+  border-radius: 99px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.zr-discord-live .zr-dc-me { border-color: #b98cff; }

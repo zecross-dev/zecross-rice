@@ -35,7 +35,7 @@ avec les meilleurs outils Windows, pas une copie forcée. Réponds-moi en franç
 
 1. **Barre du haut en îlots flottants** (remplace l'affichage barre des tâches en haut) :
    4 « pilules » séparées, avec un petit espace autour de l'écran :
-   - gauche : bureaux virtuels + **lecteur média** (titre — artiste ; au clic : pochette, playlist si dispo,
+   - gauche : bureaux virtuels + **lecteur média** (+ un îlot **Discord** juste à droite, voir 7) (titre — artiste ; au clic : pochette, playlist si dispo,
      ⏮ ⏯ ⏭ et **volume de Spotify seul**) ;
    - centre : date + heure ;
    - droite 1 : **utilisation Claude** (voir 4) ;
@@ -81,10 +81,25 @@ avec les meilleurs outils Windows, pas une copie forcée. Réponds-moi en franç
      Sur Windows, `start spotify:playlist:…` suffit pour lancer une playlist.
    - Les applis lancées depuis la roue s'ouvrent **sur l'écran où j'ai ouvert la roue**.
 
-7. **Fenêtres** : coins arrondis (natif Windows 11), petit espace (~8 px) entre les fenêtres maximisées
+7. **Îlot Discord** (à droite du lecteur média dans la barre) : réutilise **`bin/zdiscord`** du repo Linux,
+   un script Python sans dépendance qui marche tel quel sous Windows (RPC Discord via `\\.\pipe\discord-ipc-0`).
+   - Configuration : je crée une app sur https://discord.com/developers/applications (OAuth2 → redirection
+     `http://localhost`), puis `python zdiscord setup` (secret saisi au clavier) et `python zdiscord login`.
+     Config/jetons dans `%APPDATA%\zdiscord\`, **jamais** dans le repo.
+   - Barre : ma photo de profil ronde ; en vocal : nom du salon + avatars des membres (anneau violet quand
+     quelqu'un parle, avatars en cache local dans `%LOCALAPPDATA%\zdiscord\avatars`), icônes micro/casque coupés.
+   - Au clic : liste des membres, boutons **Micro**, **Casque**, **Quitter**, et sous-menu
+     **Rejoindre un vocal** (salons occupés de mes serveurs, avec qui est dedans).
+   - Interface du script : `python zdiscord daemon` écrit une ligne JSON par changement
+     (`{"type":"state","in_voice":…,"channel":{…},"members":[{name,avatar_file,muted,deafened,speaking}],"self":{mute,deaf},"me":{…}}`)
+     et lit des commandes JSON sur stdin (`{"cmd":"mute"}`, `"deaf"`, `"disconnect"`, `{"cmd":"join","id":"…"}`,
+     `{"cmd":"channels"}` → `{"type":"channels","items":[…]}`). Commandes ponctuelles aussi :
+     `zdiscord status | channels | mute | deaf | disconnect | join <id>`.
+
+8. **Fenêtres** : coins arrondis (natif Windows 11), petit espace (~8 px) entre les fenêtres maximisées
    et la barre / le bas / la droite de l'écran principal si c'est faisable proprement.
 
-8. **Terminal** : Windows Terminal avec un thème « Zecross Violet » (fond `#0d0a14` légèrement transparent,
+9. **Terminal** : Windows Terminal avec un thème « Zecross Violet » (fond `#0d0a14` légèrement transparent,
    texte `#ece4ff`, curseur `#b98cff`, sélection `#8b5cf6`) et un prompt sur deux lignes :
    `╭─ utilisateur • chemin ⎇ branche` / `╰─❯` (flèche rose si la dernière commande a échoué).
    Piste : Oh My Posh avec un thème perso, ou Starship.

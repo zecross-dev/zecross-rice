@@ -41,7 +41,7 @@ fi
 
 # ------------------------------------------------------------ scripts
 say "Scripts dans $BIN"
-for f in zgithub zlaunch zspot zspotify zkando-icons; do install -m755 "$REPO/bin/$f" "$BIN/$f"; done
+for f in zgithub zlaunch zspot zspotify zkando-icons zdiscord; do install -m755 "$REPO/bin/$f" "$BIN/$f"; done
 
 # ------------------------------------------------------------ extension GNOME
 say "Extension GNOME $EXT_UUID"

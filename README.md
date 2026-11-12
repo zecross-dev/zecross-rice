@@ -8,6 +8,7 @@ Config GNOME perso, violet / blanc / noir, pour Ubuntu.
 |---|---|
 | **Barre du haut en îlots** | 4 îlots « verre » (fond noir, contour blanc, halo) : Activités + Spotify, horloge, utilisation Claude, icônes système |
 | **Widget Spotify** | titre/artiste dans la barre ; au clic : pochette, playlist en cours, ⏮ ⏯ ⏭, volume de Spotify |
+| **Îlot Discord** | ta photo de profil ; en vocal : salon + avatars (anneau violet = parle) ; au clic : membres, Micro / Casque / Quitter, sous-menu « Rejoindre un vocal » (salons où il y a du monde) |
 | **Widget Claude** | utilisation 5 h et hebdo (lit `~/.claude/.credentials.json`, jamais stocké) |
 | **Dock à gauche** | même style que la barre, bouton 🔍 en haut |
 | **Recherche d'applis** | `Super+F` ou 🔍, moteur `zsearch` en Rust (tolère les fautes, accents, noms FR, frécence) |
@@ -41,6 +42,20 @@ Retour arrière : `./restaurer.sh` (réglages sauvegardés dans `backup/` à cha
   - `zwheel` (clic molette maintenu) ne marche **pas** : X11 uniquement. Utiliser un raccourci clavier
     dans les réglages de Kando, avec l'extension GNOME « Kando Integration ».
   - le rechargement à chaud de l'extension marche, mais le premier chargement demande une reconnexion.
+
+## Discord (vocaux)
+
+Passe par le RPC local du client Discord avec **ta propre app** (rien n'est publié, aucun bot) :
+
+1. <https://discord.com/developers/applications> → **New Application**.
+2. **OAuth2** → ajouter la redirection `http://localhost` → copier **Client ID** et **Client Secret**.
+3. `zdiscord setup` (le secret est demandé au clavier, jamais en argument), puis `zdiscord login`
+   et accepter la fenêtre qui s'ouvre dans Discord.
+
+Config et jetons : `~/.config/zdiscord/` (droits 600), jamais dans ce dépôt.
+`zdiscord` est un script Python sans dépendance qui marche aussi **sous Windows** (named pipe).
+Le sous-menu « Rejoindre » liste les salons vocaux occupés de tes serveurs (Discord n'expose pas
+la présence vocale des amis hors serveurs communs).
 
 ## Terminal sans molette
 
