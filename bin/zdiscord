@@ -5,6 +5,8 @@
   zdiscord login             autorise l'app (fenêtre de confirmation dans Discord)
   zdiscord status            état actuel en JSON (salon, membres, muet/casque)
   zdiscord channels          salons vocaux où il y a du monde (pour les rejoindre)
+                             amis : marqués d'une ☆ dans le menu (~/.config/zdiscord/friends.json),
+                             Discord ne donnant pas la liste d'amis aux apps non validées
   zdiscord mute | deaf       bascule micro coupé / casque coupé
   zdiscord disconnect        quitte le vocal
   zdiscord join <channel_id> rejoint un salon vocal
@@ -27,12 +29,14 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 WINDOWS = os.name == "nt"
 CONF = Path(os.environ.get("APPDATA", "")) / "zdiscord" if WINDOWS else Path.home() / ".config/zdiscord"
 SETTINGS = CONF / "config.json"
 TOKEN = CONF / "token.json"
+FRIENDS = CONF / "friends.json"  # {"ids": {"<id>": "<pseudo>"}} — marqués avec ☆ dans le menu
 SCOPES = ["rpc", "rpc.voice.read", "rpc.voice.write", "identify"]
 REDIRECT = "http://localhost"
 OP_HANDSHAKE, OP_FRAME, OP_CLOSE, OP_PING, OP_PONG = range(5)
@@ -226,35 +230,89 @@ def avatar_url(user: dict) -> str:
 
 
 AVATARS = (Path(os.environ.get("LOCALAPPDATA", "")) / "zdiscord/avatars") if WINDOWS else Path.home() / ".cache/zdiscord/avatars"
+# trois groupes de threads : les tâches (scan, commandes) n'attendent que des « feuilles »
+# (appels RPC, téléchargements) qui n'attendent jamais rien -> pas d'interblocage
+_POOL = ThreadPoolExecutor(max_workers=6)        # tâches
+_RPC_POOL = ThreadPoolExecutor(max_workers=32)   # appels RPC en parallèle
+_DL_POOL = ThreadPoolExecutor(max_workers=12)    # téléchargements d'avatars
+_dl_lock = threading.Lock()
+_dl_pending = set()
+on_avatar_ready = None  # rappel posé par le démon : un avatar vient d'arriver -> on renvoie l'état
 
 
-def avatar_file(user: dict) -> str:
-    """Avatar mis en cache localement (les barres d'état ne savent afficher que des fichiers)."""
-    url = avatar_url(user)
+def _download(url: str, dest: Path):
+    try:
+        AVATARS.mkdir(parents=True, exist_ok=True)
+        req = urllib.request.Request(url, headers={"User-Agent": "zdiscord (rice, 1.0)"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = r.read()
+        tmp = dest.with_suffix(".part")
+        tmp.write_bytes(data)
+        os.replace(tmp, dest)
+        ok = True
+    except Exception:
+        ok = False
+    with _dl_lock:
+        _dl_pending.discard(dest.name)
+    if ok and on_avatar_ready:
+        on_avatar_ready()
+
+
+def avatar_file(user: dict, wait: bool = False) -> str:
+    """Avatar en cache local (les barres d'état n'affichent que des fichiers).
+    Jamais bloquant par défaut : si absent, téléchargé en arrière-plan et "" en attendant."""
     name = f"{user.get('id', '0')}-{user.get('avatar') or 'default'}.png"
     dest = AVATARS / name
-    if not dest.exists():
-        try:
-            AVATARS.mkdir(parents=True, exist_ok=True)
-            req = urllib.request.Request(url, headers={"User-Agent": "zdiscord (rice, 1.0)"})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                dest.write_bytes(r.read())
-        except Exception:
-            return ""
-    return str(dest)
+    if dest.exists():
+        return str(dest)
+    with _dl_lock:
+        first = name not in _dl_pending
+        _dl_pending.add(name)
+    if wait:
+        if first:
+            _download(avatar_url(user), dest)
+        else:
+            for _ in range(50):  # déjà en cours ailleurs : on attend jusqu'à 5 s
+                if dest.exists() or name not in _dl_pending:
+                    break
+                time.sleep(0.1)
+        return str(dest) if dest.exists() else ""
+    if first:
+        _DL_POOL.submit(_download, avatar_url(user), dest)
+    return ""
+
+
+def display_name(vs: dict) -> str:
+    u = vs.get("user", {})
+    return vs.get("nick") or u.get("global_name") or u.get("username") or "?"
 
 
 def member(vs: dict, speaking: set) -> dict:
     u, v = vs.get("user", {}), vs.get("voice_state", {})
     return {
         "id": u.get("id"),
-        "name": vs.get("nick") or u.get("global_name") or u.get("username") or "?",
+        "name": display_name(vs),
         "avatar": avatar_url(u),
         "avatar_file": avatar_file(u),
         "muted": bool(v.get("self_mute") or v.get("mute")),
         "deafened": bool(v.get("self_deaf") or v.get("deaf")),
         "speaking": u.get("id") in speaking,
     }
+
+
+VOICE_EVENTS = ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE", "VOICE_STATE_DELETE", "SPEAKING_START", "SPEAKING_STOP")
+
+
+def call_many(rpc, calls, timeout=8):
+    """Plusieurs appels RPC en parallèle (le RPC multiplexe par nonce). -> liste de résultats (None si erreur)."""
+    futs = [_RPC_POOL.submit(rpc.call, cmd, args, evt, timeout) for cmd, args, evt in calls]
+    out = []
+    for f in futs:
+        try:
+            out.append(f.result())
+        except Exception:
+            out.append(None)
+    return out
 
 
 class State:
@@ -265,36 +323,38 @@ class State:
         self.speaking = set()
         self.voice = {}
         self.sub_channel = None
+        self.guild_names = {}
 
     def refresh(self):
-        self.voice = self.rpc.call("GET_VOICE_SETTINGS")
-        ch = self.rpc.call("GET_SELECTED_VOICE_CHANNEL")
+        self.voice, ch = call_many(self.rpc, [("GET_VOICE_SETTINGS", None, None),
+                                              ("GET_SELECTED_VOICE_CHANNEL", None, None)])
+        self.voice = self.voice or {}
         self.set_channel(ch or None)
 
     def set_channel(self, ch):
+        calls = []
         if self.sub_channel and (not ch or ch.get("id") != self.sub_channel):
-            for evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE", "VOICE_STATE_DELETE", "SPEAKING_START", "SPEAKING_STOP"):
-                try:
-                    self.rpc.call("UNSUBSCRIBE", {"channel_id": self.sub_channel}, evt=evt, timeout=5)
-                except Exception:
-                    pass
+            calls += [("UNSUBSCRIBE", {"channel_id": self.sub_channel}, evt) for evt in VOICE_EVENTS]
             self.sub_channel = None
         self.channel = ch
         self.speaking.clear()
         self.members = {vs["user"]["id"]: vs for vs in (ch or {}).get("voice_states", []) if vs.get("user")}
         if ch and self.sub_channel != ch.get("id"):
-            for evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE", "VOICE_STATE_DELETE", "SPEAKING_START", "SPEAKING_STOP"):
-                self.rpc.call("SUBSCRIBE", {"channel_id": ch["id"]}, evt=evt, timeout=5)
+            calls += [("SUBSCRIBE", {"channel_id": ch["id"]}, evt) for evt in VOICE_EVENTS]
             self.sub_channel = ch["id"]
+        if calls:
+            call_many(self.rpc, calls, timeout=5)
 
     def guild_name(self):
         gid = (self.channel or {}).get("guild_id")
         if not gid:
             return "Appel privé"
-        try:
-            return self.rpc.call("GET_GUILD", {"guild_id": gid}, timeout=5).get("name", "")
-        except Exception:
-            return ""
+        if gid not in self.guild_names:
+            try:
+                self.guild_names[gid] = self.rpc.call("GET_GUILD", {"guild_id": gid}, timeout=5).get("name", "")
+            except Exception:
+                return ""
+        return self.guild_names[gid]
 
     def snapshot(self, guild=None) -> dict:
         ch = self.channel
@@ -314,34 +374,90 @@ class State:
         return {"name": u.get("global_name") or u.get("username") or "", "avatar_file": avatar_file(u)}
 
 
-def occupied_channels(rpc: RPC, max_channels=60) -> list:
-    """Salons vocaux où quelqu'un est connecté, tous serveurs confondus."""
-    out, checked = [], 0
-    for g in rpc.call("GET_GUILDS").get("guilds", []):
-        try:
-            chans = rpc.call("GET_CHANNELS", {"guild_id": g["id"]}, timeout=8).get("channels", [])
-        except Exception:
-            continue
-        for c in chans:
-            if c.get("type") not in VOICE_TYPES:
-                continue
-            if checked >= max_channels:
-                break
-            checked += 1
-            try:
-                full = rpc.call("GET_CHANNEL", {"channel_id": c["id"]}, timeout=5)
-            except Exception:
-                continue
-            people = [vs.get("nick") or vs["user"].get("global_name") or vs["user"].get("username") or "?"
-                      for vs in full.get("voice_states", []) if vs.get("user")]
-            if people:
-                out.append({"id": c["id"], "name": c.get("name", "?"), "guild": g.get("name", ""), "members": people})
-    return out
+# --------------------------------------------------------- vocaux des amis
+
+class Scanner:
+    """Salons vocaux occupés, tous serveurs, en parallèle. Liste des salons de chaque serveur
+    gardée 10 min (elle bouge rarement) ; amis (relationships) gardés 5 min."""
+
+    def __init__(self, rpc: RPC):
+        self.rpc = rpc
+        self.guilds = []
+        self.voice_chans = {}   # guild_id -> (t, [salons vocaux])
+        self.friends = None     # set d'ids, ou None si Discord refuse (scope manquant)
+        self.friends_t = 0
+        self.last = None        # dernier résultat (renvoyé tout de suite à l'ouverture du menu)
+        self.lock = threading.Lock()
+
+    def load_friends(self):
+        # Discord refuse le scope relationships.read aux apps non validées :
+        # les amis sont ceux que tu as marqués d'une étoile dans le menu
+        ids = load(FRIENDS).get("ids", {})
+        self.friends = set(ids) if ids else None
+
+    @staticmethod
+    def set_friend(uid: str, name: str, on: bool):
+        data = load(FRIENDS)
+        ids = data.get("ids", {})
+        if on:
+            ids[str(uid)] = name
+        else:
+            ids.pop(str(uid), None)
+        save_private(FRIENDS, {"ids": ids})
+
+    def scan(self, friends_only=True) -> dict:
+        with self.lock:
+            t0 = time.time()
+            self.load_friends()
+            if not self.guilds or t0 - getattr(self, "guilds_t", 0) > 600:
+                self.guilds = self.rpc.call("GET_GUILDS").get("guilds", [])
+                self.guilds_t = t0
+            gnames = {g["id"]: g.get("name", "") for g in self.guilds}
+            stale = [g["id"] for g in self.guilds if t0 - self.voice_chans.get(g["id"], (0,))[0] > 600]
+            for gid, res in zip(stale, call_many(self.rpc, [("GET_CHANNELS", {"guild_id": gid}, None) for gid in stale])):
+                if res is not None:
+                    self.voice_chans[gid] = (t0, [c for c in res.get("channels", []) if c.get("type") in VOICE_TYPES])
+            chans = [(gid, c) for gid in gnames for c in self.voice_chans.get(gid, (0, []))[1]]
+            fulls = call_many(self.rpc, [("GET_CHANNEL", {"channel_id": c["id"]}, None) for _, c in chans], timeout=5)
+            items, users = [], {}
+            me = (getattr(self.rpc, "me", None) or {}).get("id")
+            for (gid, c), full in zip(chans, fulls):
+                vss = [vs for vs in (full or {}).get("voice_states", []) if vs.get("user")]
+                if not vss:
+                    continue
+                people = []
+                for vs in vss:
+                    uid = vs["user"]["id"]
+                    users[uid] = vs["user"]
+                    people.append({"id": uid, "name": display_name(vs), "me": uid == me,
+                                   "friend": self.friends is not None and uid in self.friends})
+                people.sort(key=lambda p: (not p["friend"], p["name"].lower()))
+                friends = [p for p in people if p["friend"]] if self.friends is not None else people
+                if friends_only and self.friends is not None and not friends:
+                    continue
+                items.append({"id": c["id"], "name": c.get("name", "?"), "guild": gnames.get(gid, ""),
+                              "friends": friends, "people": people,
+                              "others": len(people) - len(friends),
+                              "members": [p["name"] for p in people]})
+            # avatars : téléchargés en parallèle (cache disque ensuite)
+            needed = {p["id"] for it in items for p in it["people"]}
+            paths = dict(zip(needed, _DL_POOL.map(lambda uid: avatar_file(users[uid], wait=True), needed)))
+            for it in items:
+                for p in it["people"]:
+                    p["avatar_file"] = paths.get(p["id"], "")
+            items.sort(key=lambda it: (-len(it["friends"]), it["guild"].lower(), it["name"].lower()))
+            self.last = {"type": "channels", "items": items, "friends_known": self.friends is not None,
+                         "took_ms": int((time.time() - t0) * 1000)}
+            return self.last
+
+
+def occupied_channels(rpc: RPC) -> list:
+    return Scanner(rpc).scan(friends_only=False)["items"]
 
 
 def run_command(rpc: RPC, state: "State | None", cmd: dict):
     c = cmd.get("cmd")
-    voice = rpc.call("GET_VOICE_SETTINGS")
+    voice = state.voice if state is not None and state.voice else rpc.call("GET_VOICE_SETTINGS")
     if c == "mute":
         rpc.call("SET_VOICE_SETTINGS", {"mute": not voice.get("mute")})
     elif c == "deaf":
@@ -349,30 +465,37 @@ def run_command(rpc: RPC, state: "State | None", cmd: dict):
     elif c == "disconnect":
         rpc.call("SELECT_VOICE_CHANNEL", {"channel_id": None})
     elif c == "join" and cmd.get("id"):
-        rpc.call("SELECT_VOICE_CHANNEL", {"channel_id": str(cmd["id"]), "force": True})
-    elif c == "channels":
-        return {"type": "channels", "items": occupied_channels(rpc)}
+        rpc.call("SELECT_VOICE_CHANNEL", {"channel_id": str(cmd["id"]), "force": True}, timeout=20)
     return None
 
 
 # -------------------------------------------------------------------- démon
 
+_emit_lock = threading.Lock()
+
+
 def emit(obj):
-    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    line = json.dumps(obj, ensure_ascii=False) + "\n"
+    with _emit_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def daemon():
+    global on_avatar_ready
     while True:
         try:
             events = queue.Queue()
             rpc = connect(lambda evt, data: events.put((evt, data)))
             state = State(rpc)
-            for evt in ("VOICE_SETTINGS_UPDATE", "VOICE_CHANNEL_SELECT"):
-                rpc.call("SUBSCRIBE", {}, evt=evt)
+            scanner = Scanner(rpc)
+            on_avatar_ready = lambda: events.put(("__AVATAR__", {}))
+            call_many(rpc, [("SUBSCRIBE", {}, evt) for evt in ("VOICE_SETTINGS_UPDATE", "VOICE_CHANNEL_SELECT")])
             state.refresh()
             guild = state.guild_name()
             emit(state.snapshot(guild))
+            # pré-scan en arrière-plan : le menu « Rejoindre » s'ouvre déjà rempli
+            _POOL.submit(lambda: scanner.scan())
 
             def stdin_reader():
                 for line in sys.stdin:
@@ -383,34 +506,59 @@ def daemon():
                 events.put(("__EOF__", {}))
             threading.Thread(target=stdin_reader, daemon=True).start()
 
+            def do_command(data):
+                try:
+                    if data.get("cmd") == "friend" and data.get("id"):
+                        Scanner.set_friend(data["id"], data.get("name", ""), bool(data.get("on")))
+                        emit(scanner.scan())
+                    elif data.get("cmd") == "channels":
+                        if scanner.last:
+                            emit(scanner.last)          # tout de suite le dernier résultat…
+                        emit(scanner.scan())            # …puis le résultat frais
+                    else:
+                        run_command(rpc, state, data)
+                except Exception as e:
+                    emit({"type": "error", "message": str(e)})
+
             while True:
                 evt, data = events.get()
-                if evt == "__EOF__":
-                    return
-                if evt == "__CLOSED__":
-                    raise ConnectionError("Discord fermé")
-                if evt == "__CMD__":
+                dirty = speaking_only = False
+                # on traite tout ce qui est déjà arrivé, puis UN seul envoi
+                while True:
+                    if evt == "__EOF__":
+                        return
+                    if evt == "__CLOSED__":
+                        raise ConnectionError("Discord fermé")
+                    if evt == "__CMD__":
+                        # en tâche de fond : un « rejoindre » lent ne gèle plus l'îlot
+                        _POOL.submit(do_command, data)
+                    elif evt == "VOICE_SETTINGS_UPDATE":
+                        state.voice = data
+                        dirty = True
+                    elif evt == "VOICE_CHANNEL_SELECT":
+                        state.refresh()
+                        guild = state.guild_name()
+                        dirty = True
+                    elif evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE") and data.get("user"):
+                        state.members[data["user"]["id"]] = data
+                        dirty = True
+                    elif evt == "VOICE_STATE_DELETE" and data.get("user"):
+                        state.members.pop(data["user"]["id"], None)
+                        dirty = True
+                    elif evt in ("SPEAKING_START", "SPEAKING_STOP"):
+                        (state.speaking.add if evt == "SPEAKING_START" else state.speaking.discard)(data.get("user_id"))
+                        speaking_only = True
+                    elif evt == "__AVATAR__":
+                        dirty = True
                     try:
-                        res = run_command(rpc, state, data)
-                        if res:
-                            emit(res)
-                    except Exception as e:
-                        emit({"type": "error", "message": str(e)})
-                    continue
-                if evt == "VOICE_SETTINGS_UPDATE":
-                    state.voice = data
-                elif evt == "VOICE_CHANNEL_SELECT":
-                    state.refresh()
-                    guild = state.guild_name()
-                elif evt in ("VOICE_STATE_CREATE", "VOICE_STATE_UPDATE") and data.get("user"):
-                    state.members[data["user"]["id"]] = data
-                elif evt == "VOICE_STATE_DELETE" and data.get("user"):
-                    state.members.pop(data["user"]["id"], None)
-                elif evt == "SPEAKING_START":
-                    state.speaking.add(data.get("user_id"))
-                elif evt == "SPEAKING_STOP":
-                    state.speaking.discard(data.get("user_id"))
-                emit(state.snapshot(guild))
+                        evt, data = events.get_nowait()
+                    except queue.Empty:
+                        break
+                if dirty:
+                    emit(state.snapshot(guild))
+                elif speaking_only:
+                    # message léger : l'extension ne fait que changer les anneaux, sans tout reconstruire
+                    emit({"type": "speaking", "ids": sorted(i for i in state.speaking if i)})
         except PermissionError as e:
             emit({"type": "state", "ok": False, "reason": "setup", "message": str(e)})
             time.sleep(30)

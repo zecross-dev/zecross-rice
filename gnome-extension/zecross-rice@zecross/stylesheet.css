@@ -550,6 +550,36 @@
 .zr-dc-btn-icon { icon-size: 18px; color: #ffffff; }
 .zr-dc-btn-label { font-size: 11px; color: rgba(255, 255, 255, 0.8); }
 .zr-dc-join-who { color: rgba(217, 194, 255, 0.65); font-size: 12px; padding-left: 12px; }
+.zr-dc-chan { padding: 2px 6px; }
+.zr-dc-chan-col { spacing: 4px; }
+.zr-dc-chan-head { border-radius: 12px; padding: 6px 8px; }
+.zr-dc-chan-head:hover, .zr-dc-chan-head:focus { background-color: rgba(185, 140, 255, 0.18); }
+.zr-dc-chan-row { spacing: 10px; }
+.zr-dc-faces { spacing: -6px; }
+.zr-dc-face {
+  border-radius: 99px;
+  border: 2px solid rgba(8, 6, 12, 0.95);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.zr-dc-chan-txt { spacing: 1px; }
+.zr-dc-chan-name { color: #ece4ff; font-weight: bold; max-width: 190px; }
+.zr-dc-chan-guild { color: rgba(217, 194, 255, 0.6); font-size: 11px; max-width: 190px; }
+.zr-dc-chan-details { spacing: 5px; padding: 2px 8px 6px 14px; }
+.zr-dc-friend { spacing: 9px; }
+.zr-dc-stranger { color: rgba(236, 228, 255, 0.55); }
+.zr-dc-star { padding: 0 6px; border-radius: 99px; color: rgba(255, 255, 255, 0.45); font-size: 15px; }
+.zr-dc-star:hover, .zr-dc-star:focus { color: #ffffff; background-color: rgba(185, 140, 255, 0.25); }
+.zr-dc-star-on { color: #f5d38a; }
+.zr-dc-join-btn {
+  border-radius: 99px;
+  padding: 4px 14px;
+  background-color: rgba(139, 92, 246, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: bold;
+}
+.zr-dc-join-btn:hover, .zr-dc-join-btn:focus { background-color: rgba(139, 92, 246, 0.8); border-color: #ffffff; }
 .zr-dc-status { color: rgba(255, 255, 255, 0.55); font-size: 12px; }
 
 .zr-dc-me {
