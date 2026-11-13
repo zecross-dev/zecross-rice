@@ -82,6 +82,15 @@ if [ -n "$PTX" ]; then
 fi
 gsettings set org.freedesktop.ibus.general.hotkey triggers "@as []" 2>/dev/null || true
 
+# ------------------------------------------------------------ audio Bluetooth
+# le casque reste en mode musique (A2DP) quand Discord ouvre le micro (sinon la musique coupe)
+if command -v wireplumber >/dev/null; then
+  say "Audio : casque Bluetooth toujours en mode musique"
+  mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+  cp "$REPO/pipewire/51-zecross-bluetooth.conf" ~/.config/wireplumber/wireplumber.conf.d/
+  warn "Le micro utilisé en vocal sera celui du PC (actif après reconnexion)."
+fi
+
 # ------------------------------------------------------------ curseur
 if [ ! -d "$HOME/.local/share/icons/Bibata-Modern-Classic" ]; then
   say "Curseur Bibata"
