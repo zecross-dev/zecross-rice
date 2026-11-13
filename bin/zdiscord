@@ -361,7 +361,8 @@ class State:
         return {
             "type": "state", "ok": True,
             "in_voice": ch is not None,
-            "channel": {"id": ch.get("id"), "name": ch.get("name") or "Appel", "guild": guild if guild is not None else ""} if ch else None,
+            "channel": {"id": ch.get("id"), "name": ch.get("name") or "Appel", "guild": guild if guild is not None else "",
+                        "pinned": ch.get("id") in load(FRIENDS).get("channels", {})} if ch else None,
             "members": sorted((member(vs, self.speaking) for vs in self.members.values()), key=lambda m: m["name"].lower()),
             "self": {"mute": bool(self.voice.get("mute")), "deaf": bool(self.voice.get("deaf"))},
             "me": self.me(),
@@ -516,6 +517,8 @@ def daemon():
                     if data.get("cmd") in ("friend", "pin") and data.get("id"):
                         Scanner.set_mark("ids" if data["cmd"] == "friend" else "channels",
                                          data["id"], data.get("name", ""), bool(data.get("on")))
+                        if data["cmd"] == "pin":
+                            emit(state.snapshot(state.guild_name()))  # état de l'épingle du vocal en cours
                         emit(scanner.scan())
                     elif data.get("cmd") == "channels":
                         if scanner.last:

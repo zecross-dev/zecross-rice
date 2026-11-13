@@ -569,6 +569,7 @@
 .zr-dc-chev { icon-size: 14px; color: rgba(255, 255, 255, 0.6); }
 .zr-dc-friend { padding-left: 34px; }
 .zr-dc-action { padding-left: 34px; }
+.zr-dc-pin-current { padding-left: 18px; }
 .zr-dc-action-label { color: rgba(217, 194, 255, 0.85); font-size: 12px; }
 .zr-dc-join-item { padding-left: 34px; color: #ffffff; font-weight: bold; }
 .zr-dc-join-item:hover, .zr-dc-join-item:focus { background-color: rgba(139, 92, 246, 0.55); }

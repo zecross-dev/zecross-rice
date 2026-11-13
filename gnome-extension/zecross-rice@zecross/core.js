@@ -1424,6 +1424,20 @@ class DiscordIndicator extends PanelMenu.Button {
         ctrlItem.add_child(ctrls);
         this.menu.addMenuItem(ctrlItem);
 
+        // épingler le vocal où je suis (le menu reste ouvert)
+        this._pinCurrent = new DcToggleItem({style_class: 'zr-dc-pin-current'});
+        this._pinCurrentLabel = new St.Label({text: '', style_class: 'zr-dc-action-label', y_align: Clutter.ActorAlign.CENTER});
+        this._pinCurrent.add_child(this._pinCurrentLabel);
+        this._pinCurrent._onToggle = () => {
+            const ch = this._state.channel;
+            if (!ch)
+                return;
+            ch.pinned = !ch.pinned;
+            this._pinCurrentLabel.text = ch.pinned ? '📌  Désépingler ce vocal' : '📌  Épingler ce vocal';
+            this._send({cmd: 'pin', id: ch.id, name: ch.name, on: ch.pinned});
+        };
+        this.menu.addMenuItem(this._pinCurrent);
+
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._joinMenu = new PopupMenu.PopupSubMenuMenuItem('Vocaux des amis', true);
         this._expanded = new Set(); // salons dépliés (pseudos visibles)
@@ -1562,6 +1576,9 @@ class DiscordIndicator extends PanelMenu.Button {
         this._chanLabel.visible = inVoice;
         this._muteBtn.visible = this._deafBtn.visible = st.ok;
         this._leaveBtn.visible = inVoice;
+        this._pinCurrent.visible = inVoice;
+        if (inVoice)
+            this._pinCurrentLabel.text = st.channel.pinned ? '📌  Désépingler ce vocal' : '📌  Épingler ce vocal';
         this._joinMenu.visible = st.ok;
 
         if (!st.ok) {
@@ -1609,8 +1626,6 @@ class DiscordIndicator extends PanelMenu.Button {
 
         const members = st.members ?? [];
         members.slice(0, 5).forEach(m => this._avatars.add_child(this._avatar(m, 20, 'zr-dc-avatar-sm')));
-        if (members.length > 5)
-            this._avatars.add_child(new St.Label({text: `+${members.length - 5}`, style_class: 'zr-discord-more', y_align: Clutter.ActorAlign.CENTER}));
 
         for (const m of members) {
             const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false, style_class: 'zr-dc-member'});
@@ -1677,14 +1692,12 @@ class DiscordIndicator extends PanelMenu.Button {
         const head = new DcToggleItem({style_class: 'zr-dc-chan'});
         const faces = new St.BoxLayout({style_class: 'zr-dc-faces', y_align: Clutter.ActorAlign.CENTER});
         friends.slice(0, 6).forEach(f => faces.add_child(this._avatar(f, 26, 'zr-dc-face')));
-        if (friends.length > 6)
-            faces.add_child(new St.Label({text: `+${friends.length - 6}`, style_class: 'zr-discord-more', y_align: Clutter.ActorAlign.CENTER}));
         head.add_child(faces);
         const txt = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER, style_class: 'zr-dc-chan-txt'});
         const name = new St.Label({text: `${c.pinned ? '📌 ' : ''}${c.name}`, style_class: 'zr-dc-chan-name'});
         name.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         txt.add_child(name);
-        const sub = new St.Label({text: c.others > 0 ? `${c.guild} · +${c.others}` : c.guild, style_class: 'zr-dc-chan-guild'});
+        const sub = new St.Label({text: c.guild, style_class: 'zr-dc-chan-guild'});
         sub.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         txt.add_child(sub);
         head.add_child(txt);
