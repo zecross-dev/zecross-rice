@@ -839,18 +839,30 @@ class WindowRounder {
             win.connect('notify::fullscreen', update),
             win.connect('unmanaged', () => this._untrack(win)),
         ];
-        this._windows.set(win, {effect, actor, ids});
+        const data = {effect, actor, ids, actorGone: false};
+        // fenêtre fermée : l'acteur est détruit avec ses effets, il ne faut plus y toucher
+        actor.connect('destroy', () => {
+            data.actorGone = true;
+            this._untrack(win);
+        });
+        this._windows.set(win, data);
     }
 
     _untrack(win) {
         const data = this._windows.get(win);
         if (!data)
             return;
-        data.ids.forEach(id => win.disconnect(id));
-        try {
-            data.actor.remove_effect(data.effect);
-        } catch (_e) {}
         this._windows.delete(win);
+        data.ids.forEach(id => {
+            try {
+                win.disconnect(id);
+            } catch (_e) {}
+        });
+        if (!data.actorGone) {
+            try {
+                data.actor.remove_effect(data.effect);
+            } catch (_e) {}
+        }
     }
 
     destroy() {
@@ -1352,6 +1364,15 @@ class SpotifyIndicator extends PanelMenu.Button {
 
 // --------------------------------------------------------- Îlot Discord (vocaux)
 
+// Ligne de menu cliquable qui NE ferme PAS le menu (déplier un vocal, ☆, 📌).
+// Les clics passent par PopupBaseMenuItem (fiable), pas par un bouton imbriqué.
+const DcToggleItem = GObject.registerClass(
+class DcToggleItem extends PopupMenu.PopupBaseMenuItem {
+    activate(_event) {
+        this._onToggle?.();
+    }
+});
+
 // Le RPC Discord est géré par le script multiplateforme ~/.local/bin/zdiscord (mode « daemon ») :
 // il écrit une ligne JSON par changement et lit nos commandes sur stdin.
 const DiscordIndicator = GObject.registerClass(
@@ -1409,9 +1430,16 @@ class DiscordIndicator extends PanelMenu.Button {
         this._speakers = new Map(); // id -> [widgets à anneau]
         this._joinMenu.icon.icon_name = 'system-users-symbolic';
         this.menu.addMenuItem(this._joinMenu);
+        // GNOME n'ouvre pas un sous-menu vide : il garde toujours au moins une ligne,
+        // et la liste est demandée dès l'ouverture de l'îlot (pas seulement du sous-menu)
+        this._joinPlaceholder();
         this._joinMenu.menu.connect('open-state-changed', (_m, open) => {
             if (open)
                 this._loadChannels();
+        });
+        this.menu.connect('open-state-changed', (_m, open) => {
+            if (open)
+                this._send({cmd: 'channels'});
         });
 
         this._status = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
@@ -1600,17 +1628,21 @@ class DiscordIndicator extends PanelMenu.Button {
         }
     }
 
+    _joinPlaceholder() {
+        const loading = new PopupMenu.PopupMenuItem('Recherche…', {reactive: false, can_focus: false});
+        loading.add_style_class_name('zr-dc-status');
+        this._joinMenu.menu.addMenuItem(loading);
+    }
+
     _loadChannels() {
         // le démon renvoie aussitôt son dernier scan (pré-calculé), puis un scan frais
-        if (this._joinMenu.menu.isEmpty()) {
-            const loading = new PopupMenu.PopupMenuItem('Recherche…', {reactive: false});
-            loading.add_style_class_name('zr-dc-status');
-            this._joinMenu.menu.addMenuItem(loading);
-        }
+        if (this._joinMenu.menu.isEmpty())
+            this._joinPlaceholder();
         this._send({cmd: 'channels'});
     }
 
     _fillChannels(msg) {
+        this._lastChannels = msg;
         this._joinMenu.menu.removeAll();
         const current = this._state.channel?.id;
         const list = (msg.items ?? []).filter(c => c.id !== current);
@@ -1622,82 +1654,85 @@ class DiscordIndicator extends PanelMenu.Button {
         if (list.length === 0)
             note(msg.friends_known === false ? 'Personne en vocal' : 'Aucun ami en vocal');
         for (const c of list)
-            this._joinMenu.menu.addMenuItem(this._channelItem(c));
+            this._addChannel(c);
         if (msg.friends_known === false)
-            note('Déplie un vocal et marque tes amis avec ☆');
+            note('Clique un vocal : ☆ sur tes amis, 📌 pour épingler');
     }
 
-    _channelItem(c) {
-        const friends = c.friends ?? [];
-        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false, style_class: 'zr-dc-chan'});
-        const col = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'zr-dc-chan-col'});
+    _refill() {
+        // après le clic (la ligne cliquée est détruite par la reconstruction)
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            if (!this._destroyed && this._lastChannels)
+                this._fillChannels(this._lastChannels);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
 
-        // ligne repliée : pdp des amis + salon
-        const head = new St.Button({style_class: 'zr-dc-chan-head', x_expand: true, can_focus: true, track_hover: true});
-        const row = new St.BoxLayout({style_class: 'zr-dc-chan-row', x_expand: true});
+    _addChannel(c) {
+        const menu = this._joinMenu.menu;
+        const friends = c.friends ?? [];
+        const open = this._expanded.has(c.id);
+
+        // ligne du vocal : pdp des amis + salon ; clic = déplier/replier
+        const head = new DcToggleItem({style_class: 'zr-dc-chan'});
         const faces = new St.BoxLayout({style_class: 'zr-dc-faces', y_align: Clutter.ActorAlign.CENTER});
         friends.slice(0, 6).forEach(f => faces.add_child(this._avatar(f, 26, 'zr-dc-face')));
         if (friends.length > 6)
             faces.add_child(new St.Label({text: `+${friends.length - 6}`, style_class: 'zr-discord-more', y_align: Clutter.ActorAlign.CENTER}));
-        row.add_child(faces);
+        head.add_child(faces);
         const txt = new St.BoxLayout({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER, style_class: 'zr-dc-chan-txt'});
-        const name = new St.Label({text: c.name, style_class: 'zr-dc-chan-name'});
+        const name = new St.Label({text: `${c.pinned ? '📌 ' : ''}${c.name}`, style_class: 'zr-dc-chan-name'});
         name.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         txt.add_child(name);
         const sub = new St.Label({text: c.others > 0 ? `${c.guild} · +${c.others}` : c.guild, style_class: 'zr-dc-chan-guild'});
         sub.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         txt.add_child(sub);
-        row.add_child(txt);
-        head.set_child(row);
-        col.add_child(head);
+        head.add_child(txt);
+        head.add_child(new St.Icon({icon_name: open ? 'pan-down-symbolic' : 'pan-end-symbolic', style_class: 'zr-dc-chev', y_align: Clutter.ActorAlign.CENTER}));
+        head._onToggle = () => {
+            if (open)
+                this._expanded.delete(c.id);
+            else
+                this._expanded.add(c.id);
+            this._refill();
+        };
+        menu.addMenuItem(head);
+        if (!open)
+            return;
 
-        // dépliée : pdp + pseudo (amis d'abord) avec ☆ pour marquer un ami, puis « Rejoindre »
-        const details = new St.BoxLayout({vertical: true, style_class: 'zr-dc-chan-details', visible: this._expanded.has(c.id)});
+        // dépliée : chaque personne (pdp + pseudo + ☆), épingler, rejoindre
+        const anyFriend = (c.people ?? []).some(p => p.friend);
         for (const f of c.people ?? friends) {
-            const line = new St.BoxLayout({style_class: 'zr-dc-friend'});
+            const line = new DcToggleItem({style_class: 'zr-dc-friend', reactive: !f.me, can_focus: !f.me});
             line.add_child(this._avatar(f, 24, 'zr-dc-face'));
-            const n = new St.Label({text: f.name, style_class: 'zr-dc-name', y_align: Clutter.ActorAlign.CENTER, x_expand: true});
+            const n = new St.Label({text: f.me ? `${f.name} (toi)` : f.name, style_class: 'zr-dc-name', y_align: Clutter.ActorAlign.CENTER, x_expand: true});
             n.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-            if (!f.friend && (c.people ?? []).some(p => p.friend))
+            if (!f.friend && anyFriend)
                 n.add_style_class_name('zr-dc-stranger');
             line.add_child(n);
             if (!f.me) {
-                const star = new St.Button({style_class: 'zr-dc-star', can_focus: true, y_align: Clutter.ActorAlign.CENTER});
-                const paint = on => {
-                    star.label = on ? '★' : '☆';
-                    if (on)
+                const star = new St.Label({text: f.friend ? '★' : '☆', style_class: `zr-dc-star${f.friend ? ' zr-dc-star-on' : ''}`, y_align: Clutter.ActorAlign.CENTER});
+                line.add_child(star);
+                line._onToggle = () => {
+                    f.friend = !f.friend;
+                    star.text = f.friend ? '★' : '☆';
+                    if (f.friend)
                         star.add_style_class_name('zr-dc-star-on');
                     else
                         star.remove_style_class_name('zr-dc-star-on');
+                    this._send({cmd: 'friend', id: f.id, name: f.name, on: f.friend});
                 };
-                let on = !!f.friend;
-                paint(on);
-                star.connect('clicked', () => {
-                    on = !on;
-                    paint(on);
-                    this._send({cmd: 'friend', id: f.id, name: f.name, on});
-                });
-                line.add_child(star);
             }
-            details.add_child(line);
+            menu.addMenuItem(line);
         }
-        const join = new St.Button({label: 'Rejoindre', style_class: 'zr-dc-join-btn', can_focus: true, x_align: Clutter.ActorAlign.END});
-        join.connect('clicked', () => {
-            this._send({cmd: 'join', id: c.id});
-            this.menu.close();
-        });
-        details.add_child(join);
-        col.add_child(details);
-
-        head.connect('clicked', () => {
-            details.visible = !details.visible;
-            if (details.visible)
-                this._expanded.add(c.id);
-            else
-                this._expanded.delete(c.id);
-        });
-        item.add_child(col);
-        return item;
+        const pin = new DcToggleItem({style_class: 'zr-dc-action'});
+        pin.add_child(new St.Label({text: c.pinned ? '📌  Désépingler ce vocal' : '📌  Épingler ce vocal', style_class: 'zr-dc-action-label'}));
+        pin._onToggle = () => this._send({cmd: 'pin', id: c.id, name: c.name, on: !c.pinned});
+        menu.addMenuItem(pin);
+        const join = new PopupMenu.PopupMenuItem('Rejoindre');
+        join.add_style_class_name('zr-dc-join-item');
+        join.connect('activate', () => this._send({cmd: 'join', id: c.id}));
+        menu.addMenuItem(join);
     }
 
     destroy() {

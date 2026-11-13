@@ -36,7 +36,7 @@ WINDOWS = os.name == "nt"
 CONF = Path(os.environ.get("APPDATA", "")) / "zdiscord" if WINDOWS else Path.home() / ".config/zdiscord"
 SETTINGS = CONF / "config.json"
 TOKEN = CONF / "token.json"
-FRIENDS = CONF / "friends.json"  # {"ids": {"<id>": "<pseudo>"}} — marqués avec ☆ dans le menu
+FRIENDS = CONF / "friends.json"  # {"ids": {"<id>": "<pseudo>"}, "channels": {"<id>": "<salon>"}} — ☆ / 📌 dans le menu
 SCOPES = ["rpc", "rpc.voice.read", "rpc.voice.write", "identify"]
 REDIRECT = "http://localhost"
 OP_HANDSHAKE, OP_FRAME, OP_CLOSE, OP_PING, OP_PONG = range(5)
@@ -392,18 +392,21 @@ class Scanner:
     def load_friends(self):
         # Discord refuse le scope relationships.read aux apps non validées :
         # les amis sont ceux que tu as marqués d'une étoile dans le menu
-        ids = load(FRIENDS).get("ids", {})
-        self.friends = set(ids) if ids else None
-
-    @staticmethod
-    def set_friend(uid: str, name: str, on: bool):
         data = load(FRIENDS)
         ids = data.get("ids", {})
+        self.friends = set(ids) if ids else None
+        self.pins = set(data.get("channels", {}))
+
+    @staticmethod
+    def set_mark(kind: str, key: str, name: str, on: bool):
+        """kind = "ids" (ami ☆) ou "channels" (vocal épinglé 📌)."""
+        data = load(FRIENDS)
+        marks = data.setdefault(kind, {})
         if on:
-            ids[str(uid)] = name
+            marks[str(key)] = name
         else:
-            ids.pop(str(uid), None)
-        save_private(FRIENDS, {"ids": ids})
+            marks.pop(str(key), None)
+        save_private(FRIENDS, {"ids": data.get("ids", {}), "channels": data.get("channels", {})})
 
     def scan(self, friends_only=True) -> dict:
         with self.lock:
@@ -433,10 +436,12 @@ class Scanner:
                                    "friend": self.friends is not None and uid in self.friends})
                 people.sort(key=lambda p: (not p["friend"], p["name"].lower()))
                 friends = [p for p in people if p["friend"]] if self.friends is not None else people
-                if friends_only and self.friends is not None and not friends:
+                pinned = c["id"] in self.pins
+                filtering = self.friends is not None or bool(self.pins)
+                if friends_only and filtering and not pinned and not (self.friends is not None and friends):
                     continue
                 items.append({"id": c["id"], "name": c.get("name", "?"), "guild": gnames.get(gid, ""),
-                              "friends": friends, "people": people,
+                              "pinned": pinned, "friends": friends, "people": people,
                               "others": len(people) - len(friends),
                               "members": [p["name"] for p in people]})
             # avatars : téléchargés en parallèle (cache disque ensuite)
@@ -445,8 +450,8 @@ class Scanner:
             for it in items:
                 for p in it["people"]:
                     p["avatar_file"] = paths.get(p["id"], "")
-            items.sort(key=lambda it: (-len(it["friends"]), it["guild"].lower(), it["name"].lower()))
-            self.last = {"type": "channels", "items": items, "friends_known": self.friends is not None,
+            items.sort(key=lambda it: (not it["pinned"], -len(it["friends"]), it["guild"].lower(), it["name"].lower()))
+            self.last = {"type": "channels", "items": items, "friends_known": self.friends is not None or bool(self.pins),
                          "took_ms": int((time.time() - t0) * 1000)}
             return self.last
 
@@ -495,7 +500,7 @@ def daemon():
             guild = state.guild_name()
             emit(state.snapshot(guild))
             # pré-scan en arrière-plan : le menu « Rejoindre » s'ouvre déjà rempli
-            _POOL.submit(lambda: scanner.scan())
+            _POOL.submit(lambda: emit(scanner.scan()))
 
             def stdin_reader():
                 for line in sys.stdin:
@@ -508,8 +513,9 @@ def daemon():
 
             def do_command(data):
                 try:
-                    if data.get("cmd") == "friend" and data.get("id"):
-                        Scanner.set_friend(data["id"], data.get("name", ""), bool(data.get("on")))
+                    if data.get("cmd") in ("friend", "pin") and data.get("id"):
+                        Scanner.set_mark("ids" if data["cmd"] == "friend" else "channels",
+                                         data["id"], data.get("name", ""), bool(data.get("on")))
                         emit(scanner.scan())
                     elif data.get("cmd") == "channels":
                         if scanner.last:
