@@ -1197,7 +1197,11 @@ class SpotifyIndicator extends PanelMenu.Button {
             texts.add_child(l);
         }
         top.add_child(texts);
-        col.add_child(top);
+
+        // gauche : pochette + titres + boutons ; droite : volume vertical ; bas : progression
+        const main = new St.BoxLayout({style_class: 'zr-sp-main', x_expand: true});
+        const left = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'zr-sp-left'});
+        left.add_child(top);
 
         const controls = new St.BoxLayout({style_class: 'zr-sp-controls', x_align: Clutter.ActorAlign.CENTER});
         const mk = (icon, method, cls = '') => {
@@ -1210,18 +1214,54 @@ class SpotifyIndicator extends PanelMenu.Button {
         mk('media-skip-backward-symbolic', 'Previous');
         this._playBtn = mk('media-playback-start-symbolic', 'PlayPause', 'zr-sp-play');
         mk('media-skip-forward-symbolic', 'Next');
-        col.add_child(controls);
+        left.add_child(controls);
+        main.add_child(left);
 
-        const vol = new St.BoxLayout({style_class: 'zr-sp-volume'});
-        this._volIcon = new St.Icon({icon_name: 'audio-volume-medium-symbolic', style_class: 'zr-sp-vol-icon'});
+        // volume vertical : un Slider GNOME (horizontal) tourné de -90° dans un cadre fixe
+        const VOL_LEN = 128, VOL_THICK = 26;
+        const vol = new St.BoxLayout({vertical: true, style_class: 'zr-sp-volume', y_align: Clutter.ActorAlign.CENTER});
+        this._volLabel = new St.Label({style_class: 'zr-sp-vol-label', text: '', x_align: Clutter.ActorAlign.CENTER});
+        this._volIcon = new St.Icon({icon_name: 'audio-volume-medium-symbolic', style_class: 'zr-sp-vol-icon', x_align: Clutter.ActorAlign.CENTER});
+        const frame = new St.Widget({layout_manager: new Clutter.FixedLayout(), width: VOL_THICK, height: VOL_LEN,
+            x_align: Clutter.ActorAlign.CENTER});
         this._slider = new Slider.Slider(0.5);
-        this._slider.x_expand = true;
         this._slider.add_style_class_name('zr-sp-slider');
-        this._volLabel = new St.Label({style_class: 'zr-sp-vol-label', text: '', y_align: Clutter.ActorAlign.CENTER});
-        vol.add_child(this._volIcon);
-        vol.add_child(this._slider);
+        this._slider.set_size(VOL_LEN, VOL_THICK);
+        this._slider.set_pivot_point(0.5, 0.5);
+        this._slider.rotation_angle_z = -90;
+        this._slider.set_position((VOL_THICK - VOL_LEN) / 2, (VOL_LEN - VOL_THICK) / 2);
+        frame.add_child(this._slider);
         vol.add_child(this._volLabel);
-        col.add_child(vol);
+        vol.add_child(frame);
+        vol.add_child(this._volIcon);
+        main.add_child(vol);
+        col.add_child(main);
+
+        // progression : temps écoulé — barre (cliquer / glisser = avancer, reculer) — durée
+        const prog = new St.BoxLayout({style_class: 'zr-sp-progress', x_expand: true});
+        this._posLabel = new St.Label({style_class: 'zr-sp-time', text: '0:00', y_align: Clutter.ActorAlign.CENTER});
+        this._lenLabel = new St.Label({style_class: 'zr-sp-time', text: '0:00', y_align: Clutter.ActorAlign.CENTER});
+        this._progress = new Slider.Slider(0);
+        this._progress.x_expand = true;
+        this._progress.add_style_class_name('zr-sp-slider');
+        this._progress.add_style_class_name('zr-sp-seek');
+        prog.add_child(this._posLabel);
+        prog.add_child(this._progress);
+        prog.add_child(this._lenLabel);
+        col.add_child(prog);
+        this._seekDragging = false;
+        this._progress.connect('drag-begin', () => {
+            this._seekDragging = true;
+        });
+        this._progress.connect('drag-end', () => {
+            this._seekDragging = false;
+            this._seekTo(this._progress.value);
+        });
+        this._progressId = this._progress.connect('notify::value', () => {
+            this._posLabel.text = this._fmt(this._progress.value * (this._length ?? 0));
+            if (!this._seekDragging)
+                this._seekSoon();
+        });
 
         item.add_child(col);
         this.menu.addMenuItem(item);
@@ -1239,6 +1279,14 @@ class SpotifyIndicator extends PanelMenu.Button {
             if (open) {
                 this._syncVolume();
                 this._update();
+                this._pollPosition();
+                this._posTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+                    this._pollPosition();
+                    return GLib.SOURCE_CONTINUE;
+                });
+            } else if (this._posTimer) {
+                GLib.source_remove(this._posTimer);
+                this._posTimer = 0;
             }
         });
 
@@ -1311,11 +1359,59 @@ class SpotifyIndicator extends PanelMenu.Button {
         this._artist.text = artist;
         const ctx = this._readContext();
         this._context.text = ctx ? `dans « ${ctx} »` : (md['xesam:album'] ? `album « ${md['xesam:album']} »` : '');
+        this._length = Number(md['mpris:length'] ?? 0);
+        const tid = md['mpris:trackid'];
+        this._trackId = tid && GLib.Variant.is_object_path(tid) ? tid : null;
+        this._lenLabel.text = this._fmt(this._length);
         const art = md['mpris:artUrl'];
         if (art && art !== this._artUrl) {
             this._artUrl = art;
             this._cover.gicon = new Gio.FileIcon({file: Gio.File.new_for_uri(art)});
         }
+    }
+
+    _fmt(us) {
+        const t = Math.max(0, Math.round(us / 1e6));
+        return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    }
+
+    // Spotify n'émet pas « Position » : on la lit chaque seconde quand la carte est ouverte
+    _pollPosition() {
+        if (!this._proxy || this._seekDragging || this._seekTimer)
+            return;
+        this._proxy.call('org.freedesktop.DBus.Properties.Get', new GLib.Variant('(ss)', [MPRIS_PLAYER, 'Position']),
+            Gio.DBusCallFlags.NONE, 1000, null, (proxy, res) => {
+                let pos;
+                try {
+                    pos = Number(proxy.call_finish(res).deepUnpack()[0].deepUnpack());
+                } catch (_e) {
+                    return;
+                }
+                if (this._seekDragging || this._seekTimer || !this._length)
+                    return;
+                this._progress.block_signal_handler(this._progressId);
+                this._progress.value = Math.min(1, pos / this._length);
+                this._progress.unblock_signal_handler(this._progressId);
+                this._posLabel.text = this._fmt(pos);
+            });
+    }
+
+    _seekSoon() {
+        if (this._seekTimer)
+            GLib.source_remove(this._seekTimer);
+        this._seekTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+            this._seekTimer = 0;
+            this._seekTo(this._progress.value);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _seekTo(fraction) {
+        if (!this._proxy || !this._length || !this._trackId)
+            return;
+        const pos = Math.round(fraction * this._length);
+        this._proxy.call('SetPosition', new GLib.Variant('(ox)', [this._trackId, pos]),
+            Gio.DBusCallFlags.NONE, -1, null, null);
     }
 
     _spotifyStream() {
@@ -1352,6 +1448,10 @@ class SpotifyIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._posTimer)
+            GLib.source_remove(this._posTimer);
+        if (this._seekTimer)
+            GLib.source_remove(this._seekTimer);
         if (this._watchId)
             Gio.bus_unwatch_name(this._watchId);
         this._watchId = 0;

@@ -396,7 +396,7 @@
 .zr-spotify-state { icon-size: 12px; color: #b98cff; }
 .zr-spotify-label { max-width: 280px; color: #d9c2ff; }
 
-.zr-spotify-menu { min-width: 340px; }
+.zr-spotify-menu { min-width: 380px; }
 .zr-sp-col { spacing: 12px; }
 .zr-sp-top { spacing: 14px; }
 .zr-sp-cover { border-radius: 12px; }
@@ -419,9 +419,13 @@
 .zr-sp-play { padding: 12px; background-color: rgba(139, 92, 246, 0.55); }
 .zr-sp-btn-icon { icon-size: 18px; color: #ffffff; }
 
-.zr-sp-volume { spacing: 10px; }
+.zr-sp-main { spacing: 16px; }
+.zr-sp-left { spacing: 12px; }
+.zr-sp-volume { spacing: 6px; padding-left: 4px; }
 .zr-sp-vol-icon { icon-size: 16px; color: #b98cff; }
-.zr-sp-vol-label { color: rgba(255, 255, 255, 0.7); font-size: 12px; min-width: 38px; }
+.zr-sp-vol-label { color: rgba(255, 255, 255, 0.7); font-size: 11px; }
+.zr-sp-progress { spacing: 10px; }
+.zr-sp-time { color: rgba(255, 255, 255, 0.7); font-size: 11px; min-width: 32px; }
 .zr-sp-slider { -slider-active-background-color: #8b5cf6; -barlevel-active-background-color: #8b5cf6; }
 
 /* espace entre l'îlot Claude et l'îlot système */
