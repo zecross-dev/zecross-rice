@@ -9,7 +9,7 @@
 ![Wayland](https://img.shields.io/badge/Wayland_%26_X11-ok-ece4ff?style=flat-square)
 ![Rust](https://img.shields.io/badge/zsearch_·_zwheel-Rust-0d0a14?style=flat-square&logo=rust&logoColor=white)
 
-![bureau](assets/linux/desktop.jpg)
+![bureau](../assets/linux/desktop.jpg)
 
 </div>
 
@@ -29,7 +29,7 @@
 | **Shell** | bash, prompt sur deux lignes `╭─ user • chemin ⎇ branche` / `╰─❯` |
 | **Thème GTK / icônes** | Yaru-purple-dark |
 | **Curseur** | Bibata Modern Classic |
-| **Fond d'écran** | généré par `wallpaper.py` (ou ta rotation Variety, au choix) |
+| **Fond d'écran** | généré par `setup/wallpaper.py` (ou ta rotation Variety, au choix) |
 
 ### 🎨 Palette
 
@@ -60,7 +60,7 @@ Quatre pilules « verre » (fond noir, contour blanc, halo) : **Activités + Spo
 - **barre de progression** : clic ou glisser pour avancer / reculer
 
 </td>
-<td width="50%"><img src="assets/linux/spotify.png" alt="carte Spotify"></td>
+<td width="50%"><img src="../assets/linux/spotify.png" alt="carte Spotify"></td>
 </tr>
 <tr>
 <td width="50%" valign="top">
@@ -73,7 +73,7 @@ Quatre pilules « verre » (fond noir, contour blanc, halo) : **Activités + Spo
 - vocaux épinglés toujours visibles, même vides
 
 </td>
-<td width="50%"><img src="assets/linux/discord.png" alt="vocaux des amis"></td>
+<td width="50%"><img src="../assets/linux/discord.png" alt="vocaux des amis"></td>
 </tr>
 </table>
 
@@ -81,7 +81,7 @@ Quatre pilules « verre » (fond noir, contour blanc, halo) : **Activités + Spo
 
 ### Recherche d'applis
 
-![recherche](assets/linux/launcher.jpg)
+![recherche](../assets/linux/launcher.jpg)
 
 `Super+F` ou 🔍 du dock. Moteur `zsearch` en Rust : tolère les fautes, ignore les accents, comprend les noms français, apprend ce que tu lances le plus.
 
@@ -117,8 +117,9 @@ Clic molette **maintenu** (un clic court garde son rôle : coller, nouvel onglet
 ```bash
 git clone git@github.com:zecross-dev/zecross-rice.git ~/zecross-rice
 cd ~/zecross-rice
-./install.sh            # tout sauf la roue
+./install.sh            # dotfiles + tout sauf la roue
 ./install.sh --kando    # + roue Kando (et zwheel)
+./install.sh --links    # seulement refaire les liens (après un git pull)
 ```
 
 **Prérequis** : Ubuntu + GNOME, `python3`, `curl`, `rsync`, `unzip`.
@@ -129,7 +130,12 @@ Puis : **X11** → `Alt+F2`, `r`, Entrée · **Wayland** → se déconnecter / r
 > `install.sh` demande `sudo` deux fois sous Wayland : règle udev de `zwheel` (lecture de la souris)
 > et règle udev Bluetooth (pas de mise en veille de la puce).
 
-**Retour arrière** : `./restaurer.sh` (réglages sauvegardés dans `backup/` à chaque installation).
+**Dotfiles** : les fichiers de `linux/home/<paquet>/` sont **liés** dans ton dossier perso (format GNU Stow,
+liens fichier par fichier). Modifier ta config, c'est modifier le dépôt : un `git diff` suffit pour voir ce qui a changé.
+Un fichier déjà présent est d'abord mis de côté dans `linux/backup/<date>/`.
+Avec Stow : `stow -d linux/home -t ~ --no-folding bin gnome-shell bash ptyxis wireplumber`.
+
+**Retour arrière** : `linux/restaurer.sh` (réglages GNOME sauvegardés dans `linux/backup/`, liens retirés, fichiers d'origine remis).
 
 ### Après l'installation
 
@@ -187,19 +193,26 @@ Un souci ? `journalctl --user -b | grep -i zecross`
 ## 🗂️ Arborescence
 
 ```
-gnome-extension/zecross-rice@zecross/   extension (extension.js = chargeur à chaud, core.js = code, stylesheet.css)
-zsearch/  zwheel/                        sources Rust (lanceur, roue au clic molette)
-bin/                                     zgithub, zlaunch, zspot, zspotify, zdiscord, zkando-icons, kando
-kando/                                   menu de la roue (modèle), thème, playlists
-dconf/                                   dock / thème / raccourcis, profils terminal (GNOME Terminal, Ptyxis)
-pipewire/                                audio Bluetooth (WirePlumber, udev)
-shell/bashrc-prompt.sh                   prompt
-wallpaper.py                             fond d'écran généré
-assets/linux/                            captures de ce fichier
+linux/
+├── home/                          paquets dotfiles (reproduisent $HOME, format GNU Stow)
+│   ├── bin/.local/bin/                zgithub, zlaunch, zspot, zspotify, zdiscord, zkando-icons, kando
+│   ├── gnome-shell/.local/share/gnome-shell/extensions/zecross-rice@zecross/
+│   │                                  extension.js (chargeur à chaud), core.js, stylesheet.css, schemas/
+│   ├── bash/.config/zecross/          bashrc-prompt.sh (chargé par une ligne dans ~/.bashrc)
+│   ├── ptyxis/.local/share/org.gnome.Ptyxis/palettes/   palette Zecross Violet
+│   └── wireplumber/.config/wireplumber/wireplumber.conf.d/   casque Bluetooth en A2DP
+├── system/etc/udev/rules.d/       70-zwheel.rules, 71-zecross-bt-power.rules (copiés avec sudo)
+├── setup/
+│   ├── dconf/                     dock, thème, raccourcis, profil GNOME Terminal
+│   ├── kando/                     menu de la roue (modèle), config, playlists (copiés : Kando les réécrit)
+│   └── wallpaper.py               fond d'écran généré
+├── src/zsearch/  src/zwheel/      sources Rust (lanceur, roue au clic molette)
+├── install.sh                     liens, compilation, réglages (--kando, --links)
+└── restaurer.sh                   retour arrière
 ```
 
 <div align="center">
 
-[⬅ retour](README.md) · [🪟 version Windows](WINDOWS.md)
+[⬅ retour](../README.md) · [🪟 version Windows](../windows/README.md)
 
 </div>

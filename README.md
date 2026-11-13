@@ -6,7 +6,7 @@
 
 ![bureau](assets/linux/desktop.jpg)
 
-| 🐧 [**Linux**](LINUX.md) | 🪟 [**Windows**](WINDOWS.md) |
+| 🐧 [**Linux**](linux/README.md) | 🪟 [**Windows**](windows/README.md) |
 |:---:|:---:|
 | GNOME 46 → 50 · X11 & Wayland | Windows 11 |
 | ✅ complet | 🚧 en cours |
@@ -34,7 +34,29 @@ Spotify, vocaux Discord des amis, utilisation de Claude.
 
 ```bash
 git clone git@github.com:zecross-dev/zecross-rice.git ~/zecross-rice
-cd ~/zecross-rice && ./install.sh --kando
+cd ~/zecross-rice && ./install.sh --kando     # lance linux/install.sh
 ```
 
-Tout le détail : [LINUX.md](LINUX.md) · Windows : [WINDOWS.md](WINDOWS.md)
+Tout le détail : [linux/README.md](linux/README.md) · Windows : [windows/README.md](windows/README.md)
+
+## Organisation (dotfiles)
+
+```
+linux/
+├── home/          paquets dotfiles (format GNU Stow) : chaque paquet reproduit $HOME
+│   ├── bin/           .local/bin/  zgithub, zlaunch, zdiscord, zspot…
+│   ├── gnome-shell/   .local/share/gnome-shell/extensions/zecross-rice@zecross/
+│   ├── bash/          .config/zecross/bashrc-prompt.sh
+│   ├── ptyxis/        .local/share/org.gnome.Ptyxis/palettes/
+│   └── wireplumber/   .config/wireplumber/wireplumber.conf.d/
+├── system/        fichiers système (reproduit /) : règles udev, copiées avec sudo
+├── setup/         ce qui ne se lie pas : réglages dconf, modèles Kando, wallpaper.py
+├── src/           sources Rust : zsearch (lanceur), zwheel (roue au clic molette)
+├── install.sh     liens + compilation + réglages   (--links : juste les liens)
+└── restaurer.sh   retour arrière
+windows/           version Windows (en cours)
+assets/            captures
+```
+
+Les dotfiles sont **liés**, pas copiés : modifier sa config, c'est modifier le dépôt.
+Avec GNU Stow : `stow -d linux/home -t ~ --no-folding bin gnome-shell bash ptyxis wireplumber`.

@@ -187,7 +187,7 @@ pub fn run(hold_ms: u64, kando: Option<KandoIpc>, cmd: Vec<String>) -> Result<()
             }
         }
         if denied && !warned && active.lock().unwrap().is_empty() {
-            eprintln!("zwheel: accès refusé à /dev/input — installe la règle udev (voir install.sh)");
+            eprintln!("zwheel: accès refusé à /dev/input — installe la règle udev (voir linux/install.sh)");
             warned = true;
         }
         std::thread::sleep(Duration::from_secs(2));

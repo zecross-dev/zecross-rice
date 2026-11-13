@@ -29,7 +29,7 @@
 | **Terminal** | Windows Terminal — thème *Zecross Violet* |
 | **Prompt** | deux lignes `╭─ user • chemin ⎇ branche` / `╰─❯` (Oh My Posh ou Starship) |
 | **Curseur** | Bibata Modern Classic |
-| **Fond d'écran** | généré par `wallpaper.py` |
+| **Fond d'écran** | généré par `linux/setup/wallpaper.py` |
 
 ### 🎨 Palette
 
@@ -68,7 +68,7 @@ accent `#8b5cf6`, terminal `#0d0a14` / `#ece4ff`. Coins : 15 px (barre), 22 px (
 
 La config Windows est construite par Claude Code à partir du prompt fourni :
 
-1. Ouvre [`windows/PROMPT-windows.md`](windows/PROMPT-windows.md).
+1. Ouvre [`PROMPT-windows.md`](PROMPT-windows.md).
 2. Lance Claude Code dans PowerShell, dans un dossier vide (ex. `C:\Users\<toi>\zecross-rice-win`).
 3. Colle le prompt (à partir de « Tu es… ») et clone ce dépôt à côté pour qu'il s'en inspire.
 
@@ -77,12 +77,12 @@ du registre) et toutes les configs.
 
 ### Discord sous Windows
 
-`zdiscord` est un script Python sans dépendance qui marche tel quel :
+`zdiscord` (`linux/home/bin/.local/bin/zdiscord`) est un script Python sans dépendance qui marche tel quel :
 `python zdiscord setup`, puis `python zdiscord login`. Config et jetons dans `%APPDATA%\zdiscord\`,
 avatars en cache dans `%LOCALAPPDATA%\zdiscord\avatars`.
 
 <div align="center">
 
-[⬅ retour](README.md) · [🐧 version Linux](LINUX.md)
+[⬅ retour](../README.md) · [🐧 version Linux](../linux/README.md)
 
 </div>

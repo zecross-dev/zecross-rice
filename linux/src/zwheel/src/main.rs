@@ -19,7 +19,7 @@
 //! souris directement dans /dev/input, on les prend en exclusivité (EVIOCGRAB) et
 //! on réémet tout via une souris virtuelle (uinput), sauf le maintien du clic
 //! molette. Droits nécessaires : lecture des /dev/input/event* des souris et
-//! écriture dans /dev/uinput (règle udev « uaccess », voir install.sh).
+//! écriture dans /dev/uinput (règle udev « uaccess », voir linux/install.sh).
 //! Si zwheel s'arrête, le noyau rend aussitôt la souris (le grab meurt avec lui).
 //!
 //! Usage : zwheel [--hold MS] [--kando-menu NOM] [--backend x11|evdev] [--] <commande de secours> [args…]
