@@ -1,0 +1,601 @@
+/* =====================================================================
+   Zecross Rice — palette violet / blanc / noir
+   violet  : #b98cff (texte)  #cfb3ff (survol)  #8b5cf6 (accent fort)
+   verre   : rgba(36, 34, 42, 0.55) + contour blanc + ombre
+   ===================================================================== */
+
+/* ------------------------------------------------ Barre du haut ---- */
+#panel {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  margin: 6px 12px 8px 12px;
+  height: 30px;
+  font-weight: bold;
+}
+
+/* îlots « verre » posés derrière chaque groupe de la barre */
+.zr-island {
+  background-color: rgba(0, 0, 0, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 15px;
+  box-shadow: 0 0 16px 2px rgba(255, 255, 255, 0.6);
+}
+
+#panel:overview {
+  background-color: transparent;
+}
+
+#panel.unlock-screen,
+#panel.login-screen,
+#panel.lock-screen {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+#panel .panel-button {
+  color: #b98cff;
+  border-radius: 11px;
+  margin: 2px 2px;
+  -natural-hpadding: 10px;
+  -minimum-hpadding: 6px;
+  transition-duration: 150ms;
+}
+
+#panel .panel-button .system-status-icon,
+#panel .panel-button StIcon,
+#panel .panel-button .clock {
+  color: #b98cff;
+}
+
+#panel .panel-button:hover {
+  background-color: rgba(185, 140, 255, 0.18);
+  color: #e3d4ff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+#panel .panel-button:active,
+#panel .panel-button:overview,
+#panel .panel-button:focus,
+#panel .panel-button:checked {
+  background-color: rgba(185, 140, 255, 0.30);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+/* points des espaces de travail (bouton Activités) */
+#panel .workspace-dot {
+  background-color: #b98cff;
+}
+
+/* ------------------------------------------------ Widget Claude ---- */
+.zr-claude-box {
+  spacing: 6px;
+}
+
+.zr-claude-glyph {
+  color: #d9c2ff;
+  font-size: 15px;
+}
+
+.zr-claude-label {
+  color: #b98cff;
+  font-feature-settings: "tnum";
+}
+
+.zr-mini-track {
+  width: 34px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.zr-mini-fill {
+  height: 6px;
+  border-radius: 3px;
+}
+
+.zr-fill.zr-low, .zr-mini-fill.zr-low {
+  background-gradient-direction: horizontal;
+  background-gradient-start: #8b5cf6;
+  background-gradient-end: #c4a1ff;
+}
+
+.zr-fill.zr-mid, .zr-mini-fill.zr-mid {
+  background-gradient-direction: horizontal;
+  background-gradient-start: #a855f7;
+  background-gradient-end: #f0abfc;
+}
+
+.zr-fill.zr-high, .zr-mini-fill.zr-high {
+  background-gradient-direction: horizontal;
+  background-gradient-start: #db2777;
+  background-gradient-end: #fb7185;
+}
+
+.zr-claude-menu {
+  min-width: 300px;
+}
+
+.zr-usage-header {
+  color: #ffffff;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.zr-usage-box {
+  spacing: 6px;
+}
+
+.zr-usage-title {
+  color: #e9ddff;
+  font-weight: bold;
+}
+
+.zr-usage-pct {
+  color: #b98cff;
+  font-weight: bold;
+}
+
+.zr-track {
+  width: 260px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.zr-fill {
+  height: 10px;
+  border-radius: 5px;
+}
+
+.zr-usage-sub {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.zr-usage-status {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+
+/* --------------------------------------------- Menus déroulants ---- */
+.popup-menu-boxpointer .popup-menu-content,
+.quick-settings {
+  background-color: rgba(22, 20, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 18px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+.popup-menu-item:hover,
+.popup-menu-item:focus {
+  background-color: rgba(185, 140, 255, 0.22);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------- Dock ---- */
+/* espace autour du fond pour que le halo blanc ne soit pas coupé */
+#dashtodockContainer.left #dash,
+#dashtodockContainer.left.fixed #dash {
+  padding-top: 20px;
+  padding-bottom: 20px;
+  padding-right: 2px;
+}
+
+#dashtodockContainer.left #dash .dash-background,
+#dashtodockContainer.left.fixed #dash .dash-background,
+#dashtodockContainer.left.shrink #dash .dash-background {
+  background-color: rgba(0, 0, 0, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 22px;
+  box-shadow: 0 0 16px 2px rgba(255, 255, 255, 0.6);
+  margin-left: 10px;
+}
+
+#dashtodockContainer.left.fixed #dash .dash-background {
+  margin-right: 6px;
+}
+
+#dashtodockContainer.left #dash .dash-item-container .app-well-app .overview-icon,
+#dashtodockContainer.left #dash .dash-item-container .show-apps .overview-icon {
+  border-radius: 14px;
+  transition-duration: 150ms;
+}
+
+#dashtodockContainer.left #dash .dash-item-container .app-well-app:hover .overview-icon,
+#dashtodockContainer.left #dash .dash-item-container .show-apps:hover .overview-icon {
+  background-color: rgba(185, 140, 255, 0.22);
+}
+
+#dashtodockContainer.left #dash .dash-item-container .app-well-app.focused .overview-icon {
+  background-color: rgba(185, 140, 255, 0.32);
+}
+
+#dashtodockContainer.left #dash .dash-separator {
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+#dashtodockContainer .app-well-app-running-dot {
+  background-color: #b98cff;
+}
+
+.dash-label {
+  background-color: rgba(22, 20, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  color: #d9c2ff;
+  font-weight: bold;
+}
+
+/* bouton recherche en haut du dock */
+.zr-dock-search {
+  margin: 4px 10px 8px 16px;
+  padding: 10px;
+  border-radius: 14px;
+  background-color: rgba(185, 140, 255, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  transition-duration: 150ms;
+}
+
+.zr-dock-search:hover,
+.zr-dock-search:focus {
+  background-color: rgba(185, 140, 255, 0.40);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+.zr-dock-search-icon {
+  color: #ffffff;
+}
+
+/* ------------------------------------------------------ Lanceur ---- */
+.zr-launcher {
+  background-color: rgba(22, 20, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  padding: 14px;
+  width: 560px;
+}
+
+.zr-launcher .modal-dialog-content-box {
+  margin: 0;
+  padding: 0;
+  spacing: 10px;
+}
+
+.zr-launcher-entry {
+  font-size: 18px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(185, 140, 255, 0.7);
+  color: #ffffff;
+  caret-color: #b98cff;
+  selection-background-color: #8b5cf6;
+  selected-color: #ffffff;
+}
+
+.zr-launcher-entry:focus {
+  border-color: #ffffff;
+  box-shadow: 0 0 8px rgba(185, 140, 255, 0.6);
+}
+
+.zr-launcher-entry StLabel.hint-text {
+  color: rgba(217, 194, 255, 0.55);
+}
+
+.zr-launcher-entry-icon {
+  icon-size: 20px;
+  color: #b98cff;
+  padding-right: 8px;
+}
+
+.zr-launcher-results {
+  spacing: 4px;
+}
+
+.zr-result {
+  border-radius: 14px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+}
+
+.zr-result:selected {
+  background-color: rgba(185, 140, 255, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.zr-result-row {
+  spacing: 14px;
+}
+
+.zr-result-name {
+  color: #ffffff;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.zr-result:selected .zr-result-name {
+  color: #e9ddff;
+}
+
+.zr-result-comment {
+  color: rgba(217, 194, 255, 0.7);
+  font-size: 12px;
+}
+
+.zr-launcher-hint {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  text-align: center;
+  padding: 6px;
+}
+
+/* ------------------------------------------- Sélecteur de terminaux ---- */
+.zr-switcher {
+  width: 720px;
+}
+
+.zr-switcher-head {
+  spacing: 10px;
+  padding: 2px 4px 4px 4px;
+}
+
+.zr-switcher-head-icon {
+  icon-size: 20px;
+  color: #b98cff;
+}
+
+.zr-switcher-title {
+  color: #ffffff;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.zr-switcher-scroll {
+  max-height: 620px;
+}
+
+.zr-term-thumb {
+  background-color: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.zr-result:selected .zr-term-thumb {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 10px rgba(185, 140, 255, 0.7);
+}
+
+.zr-term-texts {
+  spacing: 4px;
+}
+
+.zr-term-plus {
+  border-style: dashed;
+  background-color: rgba(185, 140, 255, 0.10);
+}
+
+.zr-term-plus-icon {
+  icon-size: 26px;
+  color: #b98cff;
+}
+
+.zr-result:selected .zr-term-plus-icon {
+  color: #ffffff;
+}
+
+/* ------------------------------------------------------ Widget Spotify ---- */
+.zr-spotify-box { spacing: 6px; }
+.zr-spotify-logo { icon-size: 16px; }
+.zr-spotify-state { icon-size: 12px; color: #b98cff; }
+.zr-spotify-label { max-width: 280px; color: #d9c2ff; }
+
+.zr-spotify-menu { min-width: 380px; }
+.zr-sp-col { spacing: 12px; }
+.zr-sp-top { spacing: 14px; }
+.zr-sp-cover { border-radius: 12px; }
+.zr-sp-texts { spacing: 3px; max-width: 210px; }
+.zr-sp-title { color: #ffffff; font-weight: bold; font-size: 15px; }
+.zr-sp-artist { color: #b98cff; font-weight: bold; }
+.zr-sp-context { color: rgba(255, 255, 255, 0.55); font-size: 12px; }
+
+.zr-sp-controls { spacing: 14px; }
+.zr-sp-btn {
+  border-radius: 99px;
+  padding: 8px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.zr-sp-btn:hover, .zr-sp-btn:focus {
+  background-color: rgba(185, 140, 255, 0.35);
+  border-color: #ffffff;
+}
+.zr-sp-play { padding: 12px; background-color: rgba(139, 92, 246, 0.55); }
+.zr-sp-btn-icon { icon-size: 18px; color: #ffffff; }
+
+.zr-sp-main { spacing: 16px; }
+.zr-sp-left { spacing: 12px; }
+.zr-sp-volume { spacing: 6px; padding-left: 4px; }
+.zr-sp-vol-icon { icon-size: 16px; color: #b98cff; }
+.zr-sp-vol-label { color: rgba(255, 255, 255, 0.7); font-size: 11px; }
+.zr-sp-progress { spacing: 10px; }
+.zr-sp-time { color: rgba(255, 255, 255, 0.7); font-size: 11px; min-width: 32px; }
+.zr-sp-slider { -slider-active-background-color: #8b5cf6; -barlevel-active-background-color: #8b5cf6; }
+
+/* espace entre l'îlot Claude et l'îlot système */
+#panel .zr-claude-button { margin-right: 14px; }
+
+/* ------------------------------------------ Alt+Tab (style Super+Espace) ---- */
+.switcher-popup {
+  spacing: 20px;
+}
+
+.switcher-list {
+  background-color: rgba(10, 8, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 24px;
+  box-shadow: 0 0 18px 2px rgba(255, 255, 255, 0.35);
+  padding: 14px;
+}
+
+.switcher-list .switcher-list-item-container {
+  spacing: 10px;
+}
+
+.switcher-list .item-box {
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 10px;
+  color: #ffffff;
+  transition-duration: 120ms;
+}
+
+.switcher-list .item-box:hover {
+  background-color: rgba(185, 140, 255, 0.14);
+}
+
+.switcher-list .item-box:focus {
+  box-shadow: none !important;
+}
+
+.switcher-list .item-box:selected,
+.switcher-list .item-box:selected:hover,
+.switcher-list .item-box:selected:focus {
+  background-color: rgba(185, 140, 255, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 10px rgba(185, 140, 255, 0.55) !important;
+}
+
+.switcher-list .item-box StLabel {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.switcher-list .item-box:selected StLabel {
+  color: #e9ddff;
+}
+
+.switcher-list .separator {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+.switcher-list .thumbnail-box {
+  padding: 4px;
+  spacing: 8px;
+}
+
+.switcher-list .thumbnail {
+  border-radius: 12px;
+}
+
+.switcher-arrow {
+  color: rgba(217, 194, 255, 0.6);
+}
+
+.switcher-arrow:highlighted {
+  color: #ffffff;
+}
+
+/* titre de la fenêtre sélectionnée, sous la liste */
+.switcher-popup StLabel {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+/* légende sous les miniatures (Alt+² / vue d'ensemble) */
+.window-caption {
+  background-color: rgba(22, 20, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  color: #ffffff;
+  font-weight: bold;
+}
+
+/* ------------------------------------------------------- Îlot Discord ---- */
+#panel .zr-discord-button { margin-left: 14px; }
+.zr-discord-box { spacing: 7px; }
+.zr-discord-logo { icon-size: 16px; }
+.zr-discord-chan { max-width: 140px; color: #d9c2ff; }
+.zr-discord-avatars { spacing: 3px; }
+.zr-dc-avatar-sm, .zr-dc-avatar {
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.zr-speaking { border-color: #b98cff; box-shadow: 0 0 6px rgba(185, 140, 255, 0.9); }
+.zr-discord-more { color: rgba(255, 255, 255, 0.7); font-size: 11px; }
+.zr-discord-self { spacing: 2px; }
+.zr-discord-selficon { icon-size: 13px; color: #fb7185; }
+
+.zr-discord-menu { min-width: 300px; }
+.zr-dc-header { color: #ffffff; font-weight: bold; }
+.zr-dc-member { spacing: 10px; padding-top: 4px; padding-bottom: 4px; }
+.zr-dc-name { color: #ece4ff; }
+.zr-speaking-text { color: #b98cff; font-weight: bold; }
+.zr-dc-state { icon-size: 14px; color: #fb7185; }
+.zr-dc-controls { spacing: 12px; padding-top: 4px; }
+.zr-dc-btn {
+  border-radius: 14px;
+  padding: 8px 14px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.zr-dc-btn:hover, .zr-dc-btn:focus { background-color: rgba(185, 140, 255, 0.3); border-color: #ffffff; }
+.zr-dc-btn.zr-dc-on { background-color: rgba(251, 113, 133, 0.35); border-color: #fb7185; }
+.zr-dc-leave:hover { background-color: rgba(219, 39, 119, 0.5); }
+.zr-dc-btn-box { spacing: 3px; }
+.zr-dc-btn-icon { icon-size: 18px; color: #ffffff; }
+.zr-dc-btn-label { font-size: 11px; color: rgba(255, 255, 255, 0.8); }
+.zr-dc-join-who { color: rgba(217, 194, 255, 0.65); font-size: 12px; padding-left: 12px; }
+.zr-dc-chan { padding: 2px 6px; }
+.zr-dc-chan-col { spacing: 4px; }
+.zr-dc-chan-head { border-radius: 12px; padding: 6px 8px; }
+.zr-dc-chan-head:hover, .zr-dc-chan-head:focus { background-color: rgba(185, 140, 255, 0.18); }
+.zr-dc-chan-row { spacing: 10px; }
+.zr-dc-faces { spacing: 3px; }
+.zr-dc-face {
+  border-radius: 99px;
+  border: 2px solid rgba(8, 6, 12, 0.95);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.zr-dc-chan-txt { spacing: 1px; }
+.zr-dc-chan-name { color: #ece4ff; font-weight: bold; max-width: 190px; }
+.zr-dc-chan-guild { color: rgba(217, 194, 255, 0.6); font-size: 11px; max-width: 190px; }
+.zr-dc-chan-details { spacing: 5px; padding: 2px 8px 6px 14px; }
+.zr-dc-friend { spacing: 9px; }
+.zr-dc-chev { icon-size: 14px; color: rgba(255, 255, 255, 0.6); }
+.zr-dc-friend { padding-left: 34px; }
+.zr-dc-action { padding-left: 34px; }
+.zr-dc-pin-current { padding-left: 18px; }
+.zr-dc-action-label { color: rgba(217, 194, 255, 0.85); font-size: 12px; }
+.zr-dc-join-item { padding-left: 34px; color: #ffffff; font-weight: bold; }
+.zr-dc-join-item:hover, .zr-dc-join-item:focus { background-color: rgba(139, 92, 246, 0.55); }
+.zr-dc-stranger { color: rgba(236, 228, 255, 0.55); }
+.zr-dc-star { padding: 0 6px; border-radius: 99px; color: rgba(255, 255, 255, 0.45); font-size: 15px; }
+.zr-dc-star:hover, .zr-dc-star:focus { color: #ffffff; background-color: rgba(185, 140, 255, 0.25); }
+.zr-dc-star-on { color: #f5d38a; }
+.zr-dc-join-btn {
+  border-radius: 99px;
+  padding: 4px 14px;
+  background-color: rgba(139, 92, 246, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: bold;
+}
+.zr-dc-join-btn:hover, .zr-dc-join-btn:focus { background-color: rgba(139, 92, 246, 0.8); border-color: #ffffff; }
+.zr-dc-status { color: rgba(255, 255, 255, 0.55); font-size: 12px; }
+
+.zr-dc-me {
+  border-radius: 99px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+.zr-discord-live .zr-dc-me { border-color: #b98cff; }

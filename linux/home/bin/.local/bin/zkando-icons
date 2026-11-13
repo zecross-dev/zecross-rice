@@ -1,0 +1,75 @@
+#!/usr/bin/env -S gjs -m
+// zkando-icons — reconstruit les icônes de la roue Kando à partir des applis installées.
+// Pour chaque bouton « zlaunch <id.desktop> » du menu : copie l'icône système de l'appli
+// dans ~/.config/kando/icon-themes/zecross-apps/ et retire les boutons d'applis absentes.
+import Gtk from 'gi://Gtk?version=3.0';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+
+Gtk.init(null);
+const home = GLib.get_home_dir();
+const menusPath = `${home}/.config/kando/menus.json`;
+const iconDir = `${home}/.config/kando/icon-themes/zecross-apps`;
+GLib.mkdir_with_parents(iconDir, 0o755);
+const theme = Gtk.IconTheme.get_default();
+
+const [, bytes] = GLib.file_get_contents(menusPath);
+const menus = JSON.parse(new TextDecoder().decode(bytes));
+const root = menus.menus[0].root;
+let removed = [];
+
+// id « stable » (jetbrains-rustrover.desktop) -> appli réelle (jetbrains-rustrover-<uuid>.desktop)
+function findApp(id) {
+    const exact = Gio.DesktopAppInfo.new(id);
+    if (exact)
+        return exact;
+    const base = id.replace(/\.desktop$/, '');
+    const hit = Gio.AppInfo.get_all().find(a => (a.get_id() ?? '').startsWith(`${base}-`));
+    return hit ?? null;
+}
+
+function copyIcon(item, info) {
+    const gicon = info.get_icon();
+    const ii = gicon ? theme.lookup_by_gicon(gicon, 256, Gtk.IconLookupFlags.FORCE_SIZE) : null;
+    const src = ii?.get_filename();
+    if (!src)
+        return;
+    // garde l'extension réelle (svg/png) pour que Kando affiche bien l'image
+    const ext = src.match(/\.(svg|png|xpm)$/i)?.[0] ?? '.png';
+    item.icon = item.icon.replace(/\.(svg|png|xpm)$/i, '') + ext;
+    Gio.File.new_for_path(src).copy(Gio.File.new_for_path(`${iconDir}/${item.icon}`), Gio.FileCopyFlags.OVERWRITE, null, null);
+}
+
+function fix(children) {
+    return children.filter(item => {
+        if (item.children) {
+            item.children = fix(item.children);
+            if (item.type === 'submenu' && item.children.length === 0) {
+                removed.push(item.name);
+                return false;
+            }
+        }
+        if (item.iconTheme !== 'zecross-apps')
+            return true;
+        const cmd = item.selectWorkflow?.actions?.[0]?.command ?? '';
+        const m = cmd.match(/zlaunch (\S+\.desktop)/);
+        if (!m) {
+            // sous-menu / bouton sans zlaunch : icône prise de l'appli du même nom (ex. jetbrains-toolbox.png)
+            const info = findApp(item.icon.replace(/\.(svg|png|xpm)$/i, '') + '.desktop');
+            if (info)
+                copyIcon(item, info);
+            return true;
+        }
+        const info = findApp(m[1]);
+        if (!info) {
+            removed.push(item.name);
+            return false;
+        }
+        copyIcon(item, info);
+        return true;
+    });
+}
+
+root.children = fix(root.children);
+GLib.file_set_contents(menusPath, JSON.stringify(menus, null, 2));
+print(`Icônes reconstruites.${removed.length ? ` Applis absentes retirées de la roue : ${removed.join(', ')}` : ''}`);

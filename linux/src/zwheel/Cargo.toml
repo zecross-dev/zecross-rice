@@ -1,0 +1,15 @@
+[package]
+name = "zwheel"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+
+[dependencies]
+evdev = "0.13"
+libc = "0.2.191"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+x11rb = { version = "0.14.0", features = ["xtest"] }

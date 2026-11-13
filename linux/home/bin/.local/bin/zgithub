@@ -1,0 +1,454 @@
+#!/usr/bin/env -S python3 -I
+"""zgithub — ouvre GitHub / GitLab sur le dépôt de la fenêtre active (bouton Git de la roue Kando).
+
+1. Trouve la fenêtre sur laquelle tu étais : fichier écrit par l'extension GNOME
+   ($XDG_RUNTIME_DIR/zecross-rice-focus.json, marche sous Wayland), sinon xprop (X11).
+2. En déduit un dossier de projet :
+     - IntelliJ / JetBrains : « … [Projet] » + recentProjects.xml -> chemin exact
+     - VS Code : « fichier - Dossier - Visual Studio Code » + historique VS Code
+     - Terminal : titre contenant un chemin (~/… ou /…)
+     - sinon : nom trouvé dans le titre comparé aux dépôts git de ton dossier perso
+3. Remonte au dépôt git, lit le remote (origin d'abord) :
+     - github.com          -> dépôt, ou la PR ouverte de la branche (via gh)
+     - gitlab.com ou toute instance GitLab (détectée via son API /api/v4, résultat
+       en cache ; ou listée dans ~/.config/zgithub/gitlab-hosts, un hôte par ligne)
+                           -> projet, ou la MR ouverte de la branche (glab, sinon API)
+     Pas de PR/MR -> la branche courante (ou le dépôt si elle n'est pas poussée).
+4. Connexion GitHub : un dépôt privé est ouvert via github.com/login?return_to=…
+   GitLab redirige tout seul vers sa page de connexion pour un projet privé.
+   Projet GitLab privé : pour tomber pile sur la MR, ajoute un jeton (portée read_api)
+   dans ~/.config/zgithub/gitlab-tokens (« hôte jeton », droits 600) ou installe glab.
+   Aucun dépôt détecté -> github.com (avec connexion si besoin).
+
+Ne passe jamais le titre de fenêtre à un shell : tout est lu ici.
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import time
+import urllib.parse
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+HOME = Path.home()
+CACHE = HOME / ".cache/zgithub"
+IGNORED_CLASSES = {"kando", "menu.kando.kando", "gjs", "gnome-shell", ""}
+LOG = CACHE / "last.log"
+
+
+def run(cmd, timeout=5):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
+    except Exception:
+        return ""
+
+
+def xprop_value(win, prop):
+    out = run(["xprop", "-id", win, prop])
+    m = re.search(r"=\s*(.*)$", out)
+    return m.group(1) if m else ""
+
+
+def window_info(win):
+    cls = xprop_value(win, "WM_CLASS")
+    classes = [c.lower() for c in re.findall(r'"([^"]*)"', cls)]
+    name = xprop_value(win, "_NET_WM_NAME")
+    m = re.match(r'^"(.*)"$', name)
+    title = m.group(1).encode().decode("unicode_escape").encode("latin-1").decode("utf-8", "replace") if m else ""
+    wtype = xprop_value(win, "_NET_WM_WINDOW_TYPE")
+    return classes, title, wtype
+
+
+def focus_file_window():
+    """Fenêtre active notée par l'extension GNOME (Wayland comme X11)."""
+    path = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "zecross-rice-focus.json"
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return None
+    classes = [str(data.get(k, "")).lower() for k in ("wm_class", "wm_class_instance", "app_id") if data.get(k)]
+    # « firefox_firefox » (snap) -> aussi « firefox »
+    classes += [c.split("_")[0] for c in classes if "_" in c]
+    return classes, str(data.get("title", ""))
+
+
+def previous_window():
+    """Fenêtre normale la plus haute qui n'est pas Kando ni le bureau."""
+    fw = focus_file_window()
+    if fw and fw[1]:
+        return fw
+    stack = run(["xprop", "-root", "_NET_CLIENT_LIST_STACKING"])
+    ids = re.findall(r"0x[0-9a-f]+", stack)
+    for win in reversed(ids):
+        classes, title, wtype = window_info(win)
+        if any(c in IGNORED_CLASSES for c in classes) or "DESKTOP" in wtype or "DOCK" in wtype:
+            continue
+        if title == "Desktop Icons" or title.startswith("Desktop Icons "):
+            continue
+        return classes, title
+    return [], ""
+
+
+# ------------------------------------------------------------- projets connus
+
+def jetbrains_projects():
+    """{nom de projet: chemin} depuis les recentProjects.xml de tous les IDE JetBrains."""
+    projects = {}
+    for xml in glob.glob(str(HOME / ".config/JetBrains/*/options/recentProjects.xml")):
+        try:
+            text = Path(xml).read_text(errors="replace")
+        except OSError:
+            continue
+        for key in re.findall(r'<entry key="([^"]+)"', text):
+            path = key.replace("$USER_HOME$", str(HOME))
+            if os.path.isdir(path):
+                projects.setdefault(os.path.basename(path.rstrip("/")), path)
+        for path, pname in re.findall(r'<entry key="([^"]+)">\s*<value>\s*<RecentProjectMetaInfo[^>]*projectName="([^"]+)"', text):
+            path = path.replace("$USER_HOME$", str(HOME))
+            if os.path.isdir(path):
+                projects.setdefault(pname, path)
+    return projects
+
+
+def vscode_folders():
+    folders = []
+    for storage in (HOME / ".config/Code/User/globalStorage/storage.json",):
+        try:
+            data = json.loads(storage.read_text())
+        except Exception:
+            continue
+        blob = json.dumps(data)
+        for uri in re.findall(r'"file://([^"]+)"', blob):
+            p = urllib.parse.unquote(uri)
+            if os.path.isdir(p):
+                folders.append(p)
+    return folders
+
+
+def git_repos():
+    """Dépôts git sous le dossier perso (mis en cache 24 h)."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cache = CACHE / "repos.txt"
+    if cache.exists() and time.time() - cache.stat().st_mtime < 86400:
+        return [l for l in cache.read_text().splitlines() if l]
+    prune = ["node_modules", ".cache", ".local", ".npm", ".cargo", ".rustup", "snap", ".gradle",
+             ".m2", ".nvm", ".config", ".mozilla", "target", "build", "dist", ".venv", "venv"]
+    expr = []
+    for p in prune:
+        expr += ["-name", p, "-o"]
+    out = run(["find", str(HOME), "-maxdepth", "5", "(", *expr[:-1], ")", "-prune", "-o",
+               "-name", ".git", "-print", "-prune"], timeout=20)
+    repos = sorted({str(Path(l).parent) for l in out.splitlines() if l})
+    cache.write_text("\n".join(repos))
+    return repos
+
+
+# --------------------------------------------------------- titre -> dossier
+
+def candidate_dirs(classes, title):
+    cands = []
+    joined = " ".join(classes)
+
+    if "jetbrains" in joined:
+        m = re.search(r"\[([^\]]+)\]\s*$", title)
+        names = [m.group(1)] if m else []
+        names.append(re.split(r"\s+[–-]\s+", title)[0].strip())
+        projects = jetbrains_projects()
+        for n in names:
+            if n in projects:
+                cands.append(projects[n])
+        cands += [("name", n) for n in names]
+
+    elif "code" in classes or "visual studio code" in title.lower():
+        parts = [p.strip() for p in re.split(r"\s+[-—–]\s+", title)]
+        parts = [p for p in parts if p and p.lower() != "visual studio code"]
+        folders = vscode_folders()
+        for p in reversed(parts):
+            for f in folders:
+                if os.path.basename(f.rstrip("/")) == p:
+                    cands.append(f)
+            cands.append(("name", p))
+
+    # chemins dans le titre (terminaux, IDE…)
+    for m in re.finditer(r"(~|/home/[^/\s]+)(/[^\s:\"'|]*)?", title):
+        p = os.path.expanduser(m.group(0)) if m.group(0).startswith("~") else m.group(0)
+        cands.append(p)
+
+    # en dernier recours : tous les mots du titre
+    for word in re.findall(r"[\w.-]{3,}", title):
+        cands.append(("name", word))
+    return cands
+
+
+def resolve_repo(cands):
+    repos = None
+    for c in cands:
+        if isinstance(c, tuple):
+            if repos is None:
+                repos = git_repos()
+            name = c[1].lower()
+            hits = [r for r in repos if os.path.basename(r).lower() == name]
+            if hits:
+                # plusieurs dépôts du même nom : le plus récemment modifié
+                hits.sort(key=lambda r: os.path.getmtime(r), reverse=True)
+                return hits[0]
+            continue
+        if os.path.isdir(c):
+            top = run(["git", "-C", c, "rev-parse", "--show-toplevel"])
+            if top:
+                return top
+    return None
+
+
+def gitlab_hosts():
+    try:
+        return {l.strip().lower() for l in (HOME / ".config/zgithub/gitlab-hosts").read_text().splitlines() if l.strip()}
+    except OSError:
+        return set()
+
+
+def probe_gitlab(host):
+    """True si l'hôte est un GitLab (son API /api/v4 répond), mis en cache 30 jours."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cache = CACHE / "forges.json"
+    try:
+        known = json.loads(cache.read_text())
+    except Exception:
+        known = {}
+    hit = known.get(host)
+    if hit and time.time() - hit.get("t", 0) < 30 * 86400:
+        return hit.get("gitlab", False)
+    is_gl = False
+    try:
+        req = urllib.request.Request(f"https://{host}/api/v4/version", headers={"User-Agent": "zgithub"})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            is_gl = "version" in json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        is_gl = e.code == 401  # GitLab demande un jeton pour /version
+    except Exception:
+        return False  # injoignable : on ne met pas en cache
+    known[host] = {"gitlab": is_gl, "t": int(time.time())}
+    cache.write_text(json.dumps(known, indent=2))
+    return is_gl
+
+
+def parse_remote(url):
+    """(hôte, chemin « groupe/…/projet ») depuis une URL git ssh/https, sinon None."""
+    url = url.strip()
+    m = (re.match(r"^[a-z+]+://(?:[^@/]+@)?([^/:]+)(?::\d+)?/(.+?)(?:\.git)?/?$", url)
+         or re.match(r"^(?:[^@/]+@)?([^/:]+):(?!//)(.+?)(?:\.git)?/?$", url))
+    if not m:
+        return None
+    return m.group(1).lower(), m.group(2).strip("/")
+
+
+def forge_remote(repo_dir):
+    """(forge, hôte, chemin) pour le premier remote GitHub/GitLab (origin d'abord)."""
+    remotes = run(["git", "-C", repo_dir, "remote"]).split()
+    extra = gitlab_hosts()
+    for remote in (["origin"] if "origin" in remotes else []) + remotes:
+        parsed = parse_remote(run(["git", "-C", repo_dir, "remote", "get-url", remote]))
+        if not parsed:
+            continue
+        host, path = parsed
+        if host in ("github.com", "ssh.github.com") and path.count("/") == 1:
+            return "github", "github.com", path
+        if host.startswith("/") or host in ("localhost",):
+            continue
+        web = host.removeprefix("ssh.")
+        if "gitlab" in host or host in extra or probe_gitlab(web):
+            return "gitlab", web, path
+    return None
+
+
+def github_url(repo_dir):
+    f = forge_remote(repo_dir)
+    if f and f[0] == "github":
+        return tuple(f[2].split("/", 1))
+    return None
+
+
+def remote_branch(repo_dir):
+    """Nom de la branche courante côté serveur (via l'upstream), ou None si elle n'y est pas."""
+    up = run(["git", "-C", repo_dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+    if "/" in up:
+        return up.split("/", 1)[1]
+    branch = run(["git", "-C", repo_dir, "branch", "--show-current"])
+    if branch and run(["git", "-C", repo_dir, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{branch}"]):
+        return branch
+    return None
+
+
+def branch_url(base, repo_dir, gitlab):
+    """URL de la branche courante, ou du dépôt si la branche n'est pas sur le serveur."""
+    b = remote_branch(repo_dir)
+    if not b:
+        return base, "branche absente du serveur -> dépôt"
+    sep = "/-/tree/" if gitlab else "/tree/"
+    return base + sep + urllib.parse.quote(b, safe="/"), f"branche {b}"
+
+
+def default_branch(repo_dir):
+    ref = run(["git", "-C", repo_dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    return ref.split("/", 1)[1] if "/" in ref else ""
+
+
+def gitlab_token(host):
+    """Jeton personnel (portée read_api) depuis ~/.config/zgithub/gitlab-tokens : « hôte jeton » par ligne."""
+    try:
+        for line in (HOME / ".config/zgithub/gitlab-tokens").read_text().splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0].lower() == host:
+                return parts[1]
+    except OSError:
+        pass
+    return None
+
+
+def gitlab_open_mr(repo_dir, host, path):
+    """(url, info) de la MR ouverte de la branche courante sur GitLab, sinon (None, info)."""
+    branch = run(["git", "-C", repo_dir, "branch", "--show-current"])
+    if not branch:
+        return None, None
+    base = f"https://{host}/{path}"
+    # 1. glab (gère les projets privés si tu es connecté)
+    out = ""
+    if shutil.which("glab"):
+        try:
+            out = subprocess.run(["glab", "mr", "list", "--source-branch", branch, "-F", "json"], cwd=repo_dir,
+                                 capture_output=True, text=True, timeout=8).stdout.strip()
+        except Exception:
+            out = ""
+    try:
+        mrs = json.loads(out) if out.startswith("[") else None
+    except ValueError:
+        mrs = None
+    # 2. API (avec ton jeton si tu en as mis un, sinon anonyme = projets publics seulement)
+    if mrs is None:
+        api = (f"https://{host}/api/v4/projects/{urllib.parse.quote(path, safe='')}/merge_requests?"
+               + urllib.parse.urlencode({"state": "opened", "source_branch": branch}))
+        try:
+            headers = {"User-Agent": "zgithub"}
+            token = gitlab_token(host)
+            if token:
+                headers["PRIVATE-TOKEN"] = token
+            req = urllib.request.Request(api, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as r:
+                mrs = json.loads(r.read().decode())
+        except Exception:
+            mrs = None
+    if isinstance(mrs, list):
+        # seulement les MR venant du projet lui-même (pas d'un fork qui a une branche du même nom)
+        mrs = [m for m in mrs if m.get("state", "opened") == "opened"
+               and m.get("source_project_id", 0) == m.get("target_project_id", 0)]
+        if mrs:
+            m = mrs[0]
+            return m.get("web_url") or f"{base}/-/merge_requests/{m.get('iid')}", f"MR !{m.get('iid')} ({branch})"
+        return None, branch
+    return None, branch
+
+
+def open_pr_url(repo_dir):
+    """URL de la PR OUVERTE associée à la branche actuelle, sinon None."""
+    branch = run(["git", "-C", repo_dir, "branch", "--show-current"])
+    if not branch:
+        return None, None
+    try:
+        out = subprocess.run(["gh", "pr", "view", branch, "--json", "url,state,number"],
+                             capture_output=True, text=True, timeout=8, cwd=repo_dir).stdout
+        pr = json.loads(out) if out.strip() else {}
+    except Exception:
+        pr = {}
+    if pr.get("state") == "OPEN" and str(pr.get("url", "")).startswith("https://github.com/"):
+        return pr["url"], f"PR #{pr.get('number')} ({branch})"
+    return None, branch
+
+
+def is_private(owner, repo):
+    """True/False si gh sait répondre, None sinon."""
+    out = run(["gh", "repo", "view", f"{owner}/{repo}", "--json", "visibility", "-q", ".visibility"], timeout=6)
+    if out:
+        return out.upper() != "PUBLIC"
+    return None
+
+
+def open_browser(url):
+    """Navigateur choisi dans ~/.config/zgithub/browser (ex. « opera »), sinon celui par défaut."""
+    try:
+        browser = (HOME / ".config/zgithub/browser").read_text().split()
+    except OSError:
+        browser = []
+    cmd = [*browser, url] if browser and shutil.which(browser[0]) else ["xdg-open", url]
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    # Wayland empêche le navigateur déjà ouvert de passer devant : on demande à l'extension
+    # GNOME de l'activer ($XDG_RUNTIME_DIR/zecross-rice-raise.json)
+    match = os.path.basename(browser[0]).lower() if browser and shutil.which(browser[0]) else ""
+    if match:
+        rt = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+        tmp = rt / "zecross-rice-raise.json.tmp"
+        tmp.write_text(json.dumps({"match": match, "t": int(time.time() * 1000)}))
+        os.replace(tmp, rt / "zecross-rice-raise.json")
+
+
+def main():
+    classes, title = previous_window()
+    repo_dir = resolve_repo(candidate_dirs(classes, title))
+    target, reason = "https://github.com/", "aucun dépôt détecté"
+    login = True
+    if repo_dir:
+        forge = forge_remote(repo_dir)
+        if forge and forge[0] == "github":
+            owner, repo = forge[2].split("/", 1)
+            path = f"/{owner}/{repo}"
+            private = is_private(owner, repo)
+            login = private is not False  # public confirmé : pas besoin de passer par la connexion
+            target = f"https://github.com{path}"
+            pr_url, pr_info = open_pr_url(repo_dir)
+            if pr_url:
+                target = pr_url
+            else:
+                target, pr_info = branch_url(target, repo_dir, gitlab=False)
+            reason = (f"{repo_dir} ({'privé' if private else 'public' if private is False else 'visibilité inconnue'})"
+                      f" — {pr_info if pr_url else 'pas de PR : ' + str(pr_info)}")
+        elif forge:
+            _, host, path = forge
+            login = False  # GitLab redirige lui-même vers la connexion si besoin
+            target = f"https://{host}/{path}"
+            mr_url, mr_info = gitlab_open_mr(repo_dir, host, path)
+            if mr_url:
+                target = mr_url
+            else:
+                target, mr_info = branch_url(target, repo_dir, gitlab=True)
+            reason = f"{repo_dir} (GitLab {host}) — {mr_info if mr_url else 'pas de MR (ou projet privé sans jeton) : ' + str(mr_info)}"
+        else:
+            reason = f"{repo_dir} : pas de remote GitHub/GitLab"
+
+    if login:
+        ret = urllib.parse.urlparse(target).path or "/"
+        url = "https://github.com/login?return_to=" + urllib.parse.quote(ret, safe="")
+    else:
+        url = target
+
+    CACHE.mkdir(parents=True, exist_ok=True)
+    LOG.write_text(f"fenêtre: {classes} « {title} »\ndépôt: {reason}\nurl: {url}\n")
+    open_browser(url)
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--dry-run":
+        c, t = previous_window()
+        d = resolve_repo(candidate_dirs(c, t))
+        print("fenêtre:", c, t)
+        f = forge_remote(d) if d else None
+        print("dépôt:", d, f)
+        if f and f[0] == "github":
+            print("PR:", open_pr_url(d))
+        elif f:
+            print("MR:", gitlab_open_mr(d, f[1], f[2]))
+    else:
+        main()
