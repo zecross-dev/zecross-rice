@@ -114,21 +114,84 @@
             }
           },
           {
-            "name": "IntelliJ",
-            "icon": "jetbrains-idea-cfdae8f5-85c8-4fba-8dee-7.svg",
+            "type": "submenu",
+            "name": "JetBrains",
+            "icon": "jetbrains-toolbox.png",
             "iconTheme": "zecross-apps",
-            "type": "button",
             "selectWorkflow": {
-              "quickSelectKey": "I",
-              "actions": [
-                {
-                  "type": "execute-command",
-                  "command": "@HOME@/.local/bin/zlaunch jetbrains-idea-cfdae8f5-85c8-4fba-8dee-7a84682d74ad.desktop {{pointer_x}} {{pointer_y}}",
-                  "detached": true,
-                  "isolated": false
+              "quickSelectKey": "J",
+              "actions": []
+            },
+            "children": [
+              {
+                "name": "RustRover",
+                "icon": "jetbrains-rustrover.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "R",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-rustrover.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
                 }
-              ]
-            }
+              },
+              {
+                "name": "IntelliJ",
+                "icon": "jetbrains-idea.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "I",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-idea.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Android Studio",
+                "icon": "jetbrains-studio.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "A",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-studio.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Toolbox",
+                "icon": "jetbrains-toolbox.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "T",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-toolbox.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              }
+            ]
           },
           {
             "name": "Minecraft",

@@ -31,7 +31,7 @@ cp -n ~/.bashrc "$REPO/backup/bashrc.bak" 2>/dev/null || true
 if command -v cargo >/dev/null; then
   say "Compilation de zsearch (moteur de recherche d'applis)"
   (cd "$REPO/zsearch" && cargo build --release -q) && install -m755 "$REPO/zsearch/target/release/zsearch" "$BIN/zsearch"
-  if [ "$WITH_KANDO" = 1 ] && [ "$SESSION" = "x11" ]; then
+  if [ "$WITH_KANDO" = 1 ]; then
     say "Compilation de zwheel (clic molette maintenu -> roue)"
     (cd "$REPO/zwheel" && cargo build --release -q) && install -m755 "$REPO/zwheel/target/release/zwheel" "$BIN/zwheel"
   fi
@@ -61,10 +61,24 @@ EOF
 # ------------------------------------------------------------ réglages
 say "Dock, thème, raccourcis"
 dconf load / < "$REPO/dconf/settings.ini"
-PROFILE="$(gsettings get org.gnome.Terminal.ProfilesList default 2>/dev/null | tr -d "'")"
+PROFILE="$(gsettings get org.gnome.Terminal.ProfilesList default 2>/dev/null | tr -d "'" || true)"
 if [ -n "$PROFILE" ]; then
-  say "Profil du terminal"
+  say "Profil du terminal (GNOME Terminal)"
   dconf load "/org/gnome/terminal/legacy/profiles:/:$PROFILE/" < "$REPO/dconf/terminal-profile.ini"
+fi
+# Ptyxis (terminal par défaut depuis Ubuntu 25.04)
+PTX="$(gsettings get org.gnome.Ptyxis default-profile-uuid 2>/dev/null | tr -d "'" || true)"
+if [ -n "$PTX" ]; then
+  say "Profil du terminal (Ptyxis)"
+  mkdir -p ~/.local/share/org.gnome.Ptyxis/palettes
+  cp "$REPO/dconf/zecross-violet.palette" ~/.local/share/org.gnome.Ptyxis/palettes/
+  SP="org.gnome.Ptyxis.Profile:/org/gnome/Ptyxis/Profiles/$PTX/"
+  gsettings set "$SP" palette 'zecross-violet'
+  gsettings set "$SP" opacity 0.88
+  gsettings set "$SP" label 'Zecross Violet'
+  gsettings set org.gnome.Ptyxis audible-bell false
+  gsettings set org.gnome.Ptyxis cursor-shape 'ibeam'
+  gsettings set org.gnome.Ptyxis scrollbar-policy 'always'
 fi
 gsettings set org.freedesktop.ibus.general.hotkey triggers "@as []" 2>/dev/null || true
 
@@ -112,11 +126,20 @@ if [ "$WITH_KANDO" = 1 ]; then
   "$BIN/zspot" menu >/dev/null || true
   printf '[Desktop Entry]\nType=Application\nName=Kando\nExec=%s/.local/bin/kando\nIcon=kando\nCategories=Utility;\n' "$HOME" > ~/.local/share/applications/kando.desktop
   printf '[Desktop Entry]\nType=Application\nName=Kando\nExec=%s/.local/bin/kando\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' "$HOME" > ~/.config/autostart/kando.desktop
-  if [ "$SESSION" = "x11" ] && [ -x "$BIN/zwheel" ]; then
+  if [ -x "$BIN/zwheel" ]; then
     printf '[Desktop Entry]\nType=Application\nName=zwheel (roue molette)\nExec=%s/.local/bin/zwheel --hold 180 -- %s/.local/bin/kando --menu Applications\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' "$HOME" "$HOME" > ~/.config/autostart/zwheel.desktop
+    if [ "$SESSION" != "x11" ]; then
+      # Wayland : zwheel lit les souris via evdev et réémet via uinput -> règle udev « uaccess »
+      if [ ! -f /etc/udev/rules.d/70-zwheel.rules ]; then
+        say "Règle udev pour zwheel (mot de passe sudo)"
+        sudo install -m644 "$REPO/zwheel/70-zwheel.rules" /etc/udev/rules.d/70-zwheel.rules \
+          && sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=input --subsystem-match=misc \
+          || warn "règle udev non installée : le clic molette ne marchera pas sous Wayland"
+      fi
+      warn "Wayland : installe aussi l'extension « Kando Integration » (raccourci clavier + position du pointeur)."
+    fi
   else
-    warn "Session $SESSION : zwheel (clic molette) ne fonctionne que sous X11."
-    warn "Sous Wayland : installe l'extension « Kando Integration » et ouvre la roue avec un raccourci (réglages Kando)."
+    warn "zwheel absent (cargo manquant ?) : pas de roue au clic molette."
   fi
 fi
 

@@ -14,7 +14,7 @@ Config GNOME perso, violet / blanc / noir, pour Ubuntu.
 | **Recherche d'applis** | `Super+F` ou 🔍, moteur `zsearch` en Rust (tolère les fautes, accents, noms FR, frécence) |
 | **Sélecteur de terminaux** | `Super+Espace`, aperçus en direct, `Ctrl+Entrée` = nouveau terminal |
 | **Fenêtres** | coins arrondis (shader), espace sous la barre / en bas / à droite sur l'écran principal |
-| **Roue Kando** *(option)* | clic molette **maintenu** (`zwheel`, Rust) ; applis, GitHub intelligent (repo / PR de la fenêtre active), sous-menu Spotify |
+| **Roue Kando** *(option)* | clic molette **maintenu** (`zwheel`, Rust, X11 et Wayland) ou `Super+W` ; applis, sous-menu JetBrains (RustRover / IntelliJ / Android Studio / Toolbox), bouton Git intelligent (GitHub ou GitLab : PR/MR ouverte, sinon branche courante), sous-menu Spotify |
 | **Thème** | Yaru-purple-dark, curseur Bibata, fond d'écran généré, terminal violet + prompt bash |
 
 ## Installation
@@ -36,11 +36,14 @@ Retour arrière : `./restaurer.sh` (réglages sauvegardés dans `backup/` à cha
 ## Compatibilité
 
 - Écrit et testé sur **Ubuntu 24.04, GNOME 46, X11**.
-- GNOME 47 → 50 déclarés dans `metadata.json` mais **non testés** : si quelque chose casse,
+- Testé aussi sur **GNOME 50, Wayland** (Ubuntu récente, terminal Ptyxis).
+- GNOME 47 → 49 déclarés dans `metadata.json` mais **non testés** : si quelque chose casse,
   `journalctl --user -b | grep -i zecross` donne l'erreur.
 - **Wayland** (Ubuntu 25.10+ n'a plus de session X11) :
-  - `zwheel` (clic molette maintenu) ne marche **pas** : X11 uniquement. Utiliser un raccourci clavier
-    dans les réglages de Kando, avec l'extension GNOME « Kando Integration ».
+  - `zwheel` passe en mode **evdev** : il lit les souris dans `/dev/input` et réémet via une souris
+    virtuelle (`uinput`). `install.sh --kando` installe la règle udev `zwheel/70-zwheel.rules`
+    (accès « uaccess » pour la session active, demande `sudo`).
+  - l'extension GNOME « Kando Integration » est nécessaire (raccourci `Super+W`, position du pointeur).
   - le rechargement à chaud de l'extension marche, mais le premier chargement demande une reconnexion.
 
 ## Discord (vocaux)
@@ -63,6 +66,15 @@ La barre de défilement du terminal est toujours visible. Pour qu'elle marche au
 passer en affichage classique (la conversation va dans l'historique du terminal au lieu d'un écran plein écran) :
 `/tui default` dans Claude Code, ou `"tui": "default"` dans `~/.claude/settings.json`.
 En plein écran, seuls `PgUp` / `PgDn` / `Ctrl+Home` / `Ctrl+End` font défiler.
+
+## Bouton Git de la roue (`zgithub`)
+
+Ouvre le dépôt de la fenêtre active (terminal, JetBrains, VS Code) :
+- **GitHub** : PR ouverte de la branche (via `gh`), sinon la branche courante.
+- **GitLab** (gitlab.com ou toute instance, détectée via son API) : MR ouverte, sinon la branche.
+  Projet privé : ajouter un jeton `read_api` dans `~/.config/zgithub/gitlab-tokens` (`hôte jeton`, droits 600) ou installer `glab`.
+- Navigateur : `~/.config/zgithub/browser` (ex. `opera`), mis au premier plan par l'extension.
+- Dernière détection : `~/.cache/zgithub/last.log`.
 
 ## Spotify
 

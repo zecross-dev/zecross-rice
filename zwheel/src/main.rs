@@ -15,8 +15,17 @@
 //! et envoie {"type":"show-menu"} : pas de nouveau processus Electron à lancer.
 //! La commande n'est utilisée qu'en secours si Kando ne répond pas.
 //!
-//! Usage : zwheel [--hold MS] [--kando-menu NOM] [--] <commande de secours> [args…]
+//! Wayland (evdev) : pas de grab possible côté serveur graphique, donc on lit les
+//! souris directement dans /dev/input, on les prend en exclusivité (EVIOCGRAB) et
+//! on réémet tout via une souris virtuelle (uinput), sauf le maintien du clic
+//! molette. Droits nécessaires : lecture des /dev/input/event* des souris et
+//! écriture dans /dev/uinput (règle udev « uaccess », voir install.sh).
+//! Si zwheel s'arrête, le noyau rend aussitôt la souris (le grab meurt avec lui).
+//!
+//! Usage : zwheel [--hold MS] [--kando-menu NOM] [--backend x11|evdev] [--] <commande de secours> [args…]
 //!   ex.   zwheel --hold 180 --kando-menu Applications -- kando --menu Applications
+
+mod evdev_backend;
 
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Command, Stdio};
@@ -33,7 +42,7 @@ use x11rb::protocol::Event;
 const MIDDLE: u32 = 2;
 
 /// Client IPC Kando (WebSocket local, connexion persistante).
-struct KandoIpc {
+pub(crate) struct KandoIpc {
     menu: String,
     port: u16,
     sock: Option<tungstenite::WebSocket<TcpStream>>,
@@ -85,15 +94,26 @@ impl KandoIpc {
     }
 }
 
-fn parse_args() -> (u64, Option<String>, Vec<String>) {
+struct Args {
+    hold_ms: u64,
+    kando_menu: Option<String>,
+    backend: String,
+    cmd: Vec<String>,
+}
+
+fn parse_args() -> Args {
     let mut hold = 250u64;
     let mut kando_menu = None;
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t == "wayland");
+    let mut backend = if wayland { "evdev" } else { "x11" }.to_string();
     let mut cmd = Vec::new();
     let mut args = std::env::args().skip(1).peekable();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--hold" => hold = args.next().and_then(|v| v.parse().ok()).unwrap_or(hold),
             "--kando-menu" => kando_menu = args.next(),
+            "--backend" => backend = args.next().unwrap_or(backend),
             "--" => {
                 cmd.extend(args.by_ref());
                 break;
@@ -108,7 +128,7 @@ fn parse_args() -> (u64, Option<String>, Vec<String>) {
     if kando_menu.is_none() && cmd.len() >= 3 && cmd[0].ends_with("kando") && cmd[1] == "--menu" {
         kando_menu = Some(cmd[2].clone());
     }
-    (hold, kando_menu, cmd)
+    Args { hold_ms: hold, kando_menu, backend, cmd }
 }
 
 fn launch(cmd: &[String]) {
@@ -129,14 +149,29 @@ fn launch(cmd: &[String]) {
     }
 }
 
+/// Ouvre le menu : IPC Kando si possible, sinon la commande de secours.
+pub(crate) fn trigger(kando: &mut Option<KandoIpc>, cmd: &[String]) {
+    let via_ipc = kando.as_mut().is_some_and(|k| k.show());
+    if !via_ipc {
+        launch(cmd);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (hold_ms, kando_menu, cmd) = parse_args();
-    let mut kando = kando_menu.map(|menu| KandoIpc { menu, port: 0, sock: None });
+    let args = parse_args();
+    let mut kando = args.kando_menu.clone().map(|menu| KandoIpc { menu, port: 0, sock: None });
     if let Some(k) = kando.as_mut() {
         if let Some(port) = KandoIpc::read_port() {
             k.connect(port); // connexion anticipée pour que le premier menu soit instantané
         }
     }
+    match args.backend.as_str() {
+        "evdev" => evdev_backend::run(args.hold_ms, kando, args.cmd),
+        _ => run_x11(args.hold_ms, kando, args.cmd),
+    }
+}
+
+fn run_x11(hold_ms: u64, mut kando: Option<KandoIpc>, cmd: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let hold = Duration::from_millis(hold_ms);
 
     let (conn, screen_num) = x11rb::connect(None)?;
@@ -203,10 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             conn.flush()?;
         } else {
             conn.flush()?;
-            let via_ipc = kando.as_mut().is_some_and(|k| k.show());
-            if !via_ipc {
-                launch(&cmd);
-            }
+            trigger(&mut kando, &cmd);
         }
     }
 }

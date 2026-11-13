@@ -5,8 +5,29 @@ id="$1"; x="$2"; y="$3"
 case "$id" in *[!A-Za-z0-9._-]*|'') echo "id invalide" >&2; exit 1;; esac
 case "$x" in ''|*[!0-9]*) x=null;; esac
 case "$y" in ''|*[!0-9]*) y=null;; esac
+# id « stable » (ex. jetbrains-rustrover.desktop) -> fichier réel avec UUID (Toolbox JetBrains)
+apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+if [ ! -e "$apps/$id" ] && [ ! -e "/usr/share/applications/$id" ] && [ ! -e "/var/lib/snapd/desktop/applications/$id" ]; then
+  real="$(ls -t "$apps/${id%.desktop}"-*.desktop 2>/dev/null | head -1)"
+  [ -n "$real" ] && id="$(basename "$real")"
+fi
 d="${XDG_RUNTIME_DIR:-/tmp}/zecross-launch"
 mkdir -p "$d"
 printf '{"id":"%s","x":%s,"y":%s,"t":%s}\n' "$id" "$x" "$y" "$(date +%s%3N)" > "$d/launch.json.tmp"
 mv -f "$d/launch.json.tmp" "$d/launch.json"
+# Toolbox JetBrains déjà lancée : on lui parle directement sur sa socket (≈0,1 s)
+# au lieu de démarrer une 2e JVM qui ne fait que transmettre (≈2 s)
+sock="$HOME/.cache/JetBrains/Toolbox/ipc"
+if [ "$id" = "jetbrains-toolbox.desktop" ] && [ -S "$sock" ]; then
+  exe="$(sed -n 's/^Exec="\{0,1\}\([^" ]*\).*/\1/p' "$apps/$id" 2>/dev/null | head -1)"
+  [ -n "$exe" ] && python3 -I - "$sock" "$exe" <<'PY' && exit 0
+import os, socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(2)
+s.connect(sys.argv[1])
+s.sendall(f"{os.getpid()}\0SECONDARY_INSTANCE_CLI\0{sys.argv[2]}\0--command-origin=APP".encode())
+s.shutdown(socket.SHUT_WR)
+sys.exit(0 if s.recv(64).startswith(b"0") else 1)
+PY
+fi
 exec gtk-launch "$id"

@@ -5,12 +5,14 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import Shell from 'gi://Shell';
+import Cogl from 'gi://Cogl';
 import Meta from 'gi://Meta';
 import Mtk from 'gi://Mtk';
 import Pango from 'gi://Pango';
 import Soup from 'gi://Soup?version=3.0';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
@@ -723,9 +725,13 @@ class DockSearch {
             b.destroy();
         this._buttons.clear();
         for (const box of this._unclipped) {
-            delete box.set_clip;
-            delete box._zrUnclipped;
-            box.queue_relayout();
+            try {
+                delete box.set_clip;
+                delete box._zrUnclipped;
+                box.queue_relayout();
+            } catch (e) {
+                // boîte du dock déjà détruite (dock recréé entre-temps)
+            }
         }
         this._unclipped.clear();
         this._dm = null;
@@ -762,7 +768,7 @@ class RoundedCornersEffect extends Shell.GLSLEffect {
     }
 
     vfunc_build_pipeline() {
-        this.add_glsl_snippet(Shell.SnippetHook.FRAGMENT, ROUND_DECL, ROUND_CODE, false);
+        this.add_glsl_snippet((Shell.SnippetHook ?? Cogl.SnippetHook).FRAGMENT, ROUND_DECL, ROUND_CODE, false);
     }
 
     vfunc_paint_target(node, ctx) {
@@ -862,6 +868,15 @@ class WindowRounder {
 const BOTTOM_GAP = 8;
 const RIGHT_GAP = 8;
 
+// GNOME 50 a supprimé le paramètre affectsInputRegion (c'est `reactive` qui compte désormais)
+const SHELL_MAJOR = parseInt(Config.PACKAGE_VERSION.split('.')[0]);
+function addGapChrome(actor) {
+    const params = {affectsStruts: true, trackFullscreen: true};
+    if (SHELL_MAJOR < 50)
+        params.affectsInputRegion = false;
+    Main.layoutManager.addChrome(actor, params);
+}
+
 class BottomGap {
     constructor() {
         this._actors = [];
@@ -880,7 +895,7 @@ class BottomGap {
                 width: m.width,
                 height: BOTTOM_GAP,
             });
-            Main.layoutManager.addChrome(a, {affectsStruts: true, affectsInputRegion: false, trackFullscreen: true});
+            addGapChrome(a);
             this._actors.push(a);
             const r = new St.Widget({
                 reactive: false,
@@ -889,7 +904,7 @@ class BottomGap {
                 width: RIGHT_GAP,
                 height: m.height,
             });
-            Main.layoutManager.addChrome(r, {affectsStruts: true, affectsInputRegion: false, trackFullscreen: true});
+            addGapChrome(r);
             this._actors.push(r);
         }
     }
@@ -1601,6 +1616,132 @@ class DiscordIndicator extends PanelMenu.Button {
 
 // ---------------------------------------------------------------- Extension
 
+// Fenêtre active (hors Kando / bureau) écrite dans $XDG_RUNTIME_DIR/zecross-rice-focus.json
+// pour zgithub : sous Wayland, xprop ne voit pas les fenêtres natives.
+const FOCUS_IGNORED = new Set(['kando', 'gjs', 'gnome-shell', 'desktop icons', 'ding']);
+
+class FocusTracker {
+    constructor() {
+        this._file = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'zecross-rice-focus.json']);
+        this._win = null;
+        this._titleId = 0;
+        this._focusId = global.display.connect('notify::focus-window', () => this._onFocus());
+        this._onFocus();
+    }
+
+    _onFocus() {
+        const win = global.display.focus_window;
+        if (!win || win.get_window_type() !== Meta.WindowType.NORMAL || win.skip_taskbar)
+            return;
+        const ids = [win.get_wm_class(), win.get_wm_class_instance(), win.get_gtk_application_id()]
+            .map(v => (v ?? '').toLowerCase());
+        // la roue Kando (« menu.kando.Kando » sous Wayland) ne doit pas remplacer la vraie fenêtre
+        if (ids.some(v => FOCUS_IGNORED.has(v) || v.includes('kando')))
+            return;
+        if (this._win !== win) {
+            if (this._win && this._titleId)
+                this._win.disconnect(this._titleId);
+            this._win = win;
+            this._titleId = win.connect('notify::title', () => this._write());
+            win.connect('unmanaged', () => {
+                if (this._win === win) {
+                    this._win = null;
+                    this._titleId = 0;
+                }
+            });
+        }
+        this._write();
+    }
+
+    _write() {
+        const win = this._win;
+        if (!win)
+            return;
+        const data = {
+            wm_class: win.get_wm_class() ?? '',
+            wm_class_instance: win.get_wm_class_instance() ?? '',
+            app_id: win.get_gtk_application_id() ?? '',
+            title: win.get_title() ?? '',
+            pid: win.get_pid(),
+            time: Date.now(),
+        };
+        try {
+            GLib.file_set_contents(this._file, JSON.stringify(data));
+        } catch (e) {
+            console.warn(`zecross-rice: focus ${e}`);
+        }
+    }
+
+    destroy() {
+        global.display.disconnect(this._focusId);
+        if (this._win && this._titleId)
+            this._win.disconnect(this._titleId);
+        this._win = null;
+    }
+}
+
+// Demande de mise au premier plan ($XDG_RUNTIME_DIR/zecross-rice-raise.json, écrit par zgithub) :
+// sous Wayland, un navigateur déjà ouvert ne peut pas se mettre devant tout seul.
+class WindowRaiser {
+    constructor() {
+        this._path = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'zecross-rice-raise.json']);
+        this._mon = Gio.File.new_for_path(this._path).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, null);
+        this._monId = this._mon.connect('changed', () => this._onRequest());
+        this._timer = 0;
+        this._last = 0;
+    }
+
+    _onRequest() {
+        let req;
+        try {
+            const [, bytes] = GLib.file_get_contents(this._path);
+            req = JSON.parse(new TextDecoder().decode(bytes));
+        } catch (e) {
+            return;
+        }
+        const match = String(req.match ?? '').toLowerCase();
+        if (!match || req.t === this._last || Date.now() - req.t > 5000)
+            return;
+        this._last = req.t;
+        if (this._timer)
+            GLib.source_remove(this._timer);
+        let tries = 0;
+        let done = 0;
+        // on réessaie ~4 s (navigateur qui démarre), et on réactive une fois après l'ouverture de l'onglet
+        this._timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 250, () => {
+            tries++;
+            const win = this._find(match);
+            if (win) {
+                Main.activateWindow(win);
+                done++;
+            }
+            if (done >= 2 || tries >= 16) {
+                this._timer = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _find(match) {
+        const wins = global.display.list_all_windows().filter(w => {
+            if (w.get_window_type() !== Meta.WindowType.NORMAL)
+                return false;
+            return [w.get_wm_class(), w.get_wm_class_instance(), w.get_gtk_application_id()]
+                .some(v => (v ?? '').toLowerCase().includes(match));
+        });
+        wins.sort((a, b) => b.get_user_time() - a.get_user_time());
+        return wins[0] ?? null;
+    }
+
+    destroy() {
+        if (this._timer)
+            GLib.source_remove(this._timer);
+        this._mon.disconnect(this._monId);
+        this._mon.cancel();
+    }
+}
+
 export default class ZecrossRiceCore {
     constructor(ext) {
         this._ext = ext;
@@ -1622,6 +1763,8 @@ export default class ZecrossRiceCore {
         this._rounder = new WindowRounder();
         this._placer = new LaunchPlacer();
         this._bottomGap = new BottomGap();
+        this._focus = new FocusTracker();
+        this._raiser = new WindowRaiser();
 
         Main.wm.addKeybinding('open-launcher', this._settings, Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW, () => this.openLauncher());
@@ -1656,6 +1799,10 @@ export default class ZecrossRiceCore {
     }
 
     disable() {
+        this._focus?.destroy();
+        this._focus = null;
+        this._raiser?.destroy();
+        this._raiser = null;
         Main.wm.removeKeybinding('open-launcher');
         Main.wm.removeKeybinding('terminal-switcher');
         this._switcher?.close();
