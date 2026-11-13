@@ -1797,7 +1797,8 @@ class DiscordIndicator extends PanelMenu.Button {
         const name = new St.Label({text: `${c.pinned ? '📌 ' : ''}${c.name}`, style_class: 'zr-dc-chan-name'});
         name.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         txt.add_child(name);
-        const sub = new St.Label({text: c.guild, style_class: 'zr-dc-chan-guild'});
+        const empty = (c.people ?? []).length === 0;
+        const sub = new St.Label({text: empty ? `${c.guild} · vide` : c.guild, style_class: 'zr-dc-chan-guild'});
         sub.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         txt.add_child(sub);
         head.add_child(txt);

@@ -427,8 +427,8 @@ class Scanner:
             me = (getattr(self.rpc, "me", None) or {}).get("id")
             for (gid, c), full in zip(chans, fulls):
                 vss = [vs for vs in (full or {}).get("voice_states", []) if vs.get("user")]
-                if not vss:
-                    continue
+                if not vss and c["id"] not in self.pins:
+                    continue  # vide : on ne garde que les vocaux épinglés
                 people = []
                 for vs in vss:
                     uid = vs["user"]["id"]
