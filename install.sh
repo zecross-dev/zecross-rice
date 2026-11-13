@@ -88,7 +88,14 @@ if command -v wireplumber >/dev/null; then
   say "Audio : casque Bluetooth toujours en mode musique"
   mkdir -p ~/.config/wireplumber/wireplumber.conf.d
   cp "$REPO/pipewire/51-zecross-bluetooth.conf" ~/.config/wireplumber/wireplumber.conf.d/
-  warn "Le micro utilisé en vocal sera celui du PC (actif après reconnexion)."
+  warn "Le micro utilisé en vocal sera celui du PC, le micro du casque n'est plus utilisé (actif après reconnexion)."
+fi
+# puce Bluetooth jamais en veille USB (coupures audio sur les puces Intel)
+if [ ! -f /etc/udev/rules.d/71-zecross-bt-power.rules ]; then
+  say "Bluetooth : pas de mise en veille de la puce (mot de passe sudo)"
+  sudo install -m644 "$REPO/pipewire/71-zecross-bt-power.rules" /etc/udev/rules.d/ \
+    && sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=usb --attr-match=bDeviceClass=e0 \
+    || warn "règle udev Bluetooth non installée"
 fi
 
 # ------------------------------------------------------------ curseur
