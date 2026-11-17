@@ -131,8 +131,8 @@ cd ~/zecross-rice
 ./install.sh --links    # seulement refaire les liens (après un git pull)
 ```
 
-`--recurse-submodules` récupère le module facultatif **zscroll** (îlot molette). Sans lui, tout le reste
-s'installe pareil ; pour l'ajouter plus tard : `git submodule update --init modules/zscroll && ./install.sh`.
+`--recurse-submodules` récupère le module facultatif **zscroll** (îlot molette, dépôt privé : il faut y avoir accès).
+Sans lui (ou si le clone du sous-module échoue), tout le reste s'installe pareil ; pour l'ajouter plus tard : `git submodule update --init modules/zscroll && ./install.sh`.
 
 **Prérequis** : Ubuntu + GNOME, `python3`, `curl`, `rsync`, `unzip`.
 **Recommandé** : Rust (`rustup`) pour `zsearch` / `zwheel`, `python3-pil` pour le fond d'écran, `gh` pour le bouton Git.

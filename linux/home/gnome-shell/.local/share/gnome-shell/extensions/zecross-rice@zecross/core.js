@@ -2094,20 +2094,26 @@ class ScrollIndicator extends PanelMenu.Button {
     }
 
     // ------------------------------------------------------------ capture d'un raccourci
-    // Menu ouvert : la scène reçoit tout en premier (phase de capture), touches comme clics.
+    // Menu ouvert, GNOME ne distribue les événements qu'à l'acteur du menu (le « grab ») :
+    // c'est donc lui qu'on écoute, en phase de capture. Les boutons de souris que zscroll écoute
+    // déjà ne nous parviennent pas : le démon, en mode capture, nous les signale ({type: 'button'}).
     _startCapture(dir) {
         this._stopCapture();
         this._capturing = dir;
-        this._captureId = global.stage.connect('captured-event', (_a, ev) => this._onCaptureEvent(ev));
+        this._lastError = null;
+        this._captureActor = this.menu.actor;
+        this._captureId = this._captureActor.connect('captured-event', (_a, ev) => this._onCaptureEvent(ev));
+        this._send({cmd: 'capture', on: true});
         this._render();
     }
 
     _stopCapture() {
         if (this._captureId)
-            global.stage.disconnect(this._captureId);
+            this._captureActor.disconnect(this._captureId);
         this._captureId = 0;
         if (this._capturing) {
             this._capturing = null;
+            this._send({cmd: 'capture', on: false});
             this._render();
         }
     }
@@ -2240,6 +2246,8 @@ class ScrollIndicator extends PanelMenu.Button {
             return;
         }
         this._paused = false;
+        this._outQueue = [];
+        this._writing = false;
         this._stdin = this._proc.get_stdin_pipe();
         this._reader = new Gio.DataInputStream({base_stream: this._proc.get_stdout_pipe()});
         this._readLine();
@@ -2273,6 +2281,9 @@ class ScrollIndicator extends PanelMenu.Button {
                     this._syncHotkeys();
                     this._render();
                     this._syncPause();
+                } else if (msg.type === 'button') {
+                    if (this._capturing)
+                        this._applyCapture(msg.text);
                 } else if (msg.type === 'error') {
                     this._lastError = msg.message;
                     this._render();
@@ -2284,14 +2295,29 @@ class ScrollIndicator extends PanelMenu.Button {
         });
     }
 
+    // Une seule écriture à la fois sur le tube : deux write_bytes_async simultanés échouent
+    // (« opération déjà en cours ») et la commande serait perdue.
     _send(obj) {
         if (!this._stdin)
             return;
-        const bytes = new TextEncoder().encode(`${JSON.stringify(obj)}\n`);
-        this._stdin.write_bytes_async(new GLib.Bytes(bytes), GLib.PRIORITY_DEFAULT, null, (s, r) => {
+        (this._outQueue ??= []).push(`${JSON.stringify(obj)}\n`);
+        if (!this._writing)
+            this._flush();
+    }
+
+    _flush() {
+        const line = this._outQueue.shift();
+        if (line === undefined || !this._stdin) {
+            this._writing = false;
+            return;
+        }
+        this._writing = true;
+        const bytes = new GLib.Bytes(new TextEncoder().encode(line));
+        this._stdin.write_bytes_async(bytes, GLib.PRIORITY_DEFAULT, null, (s, r) => {
             try {
                 s.write_bytes_finish(r);
             } catch (_e) {}
+            this._flush();
         });
     }
 
