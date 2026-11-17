@@ -612,7 +612,11 @@
 .zr-scroll-speed { spacing: 10px; }
 .zr-scroll-speed-title { color: #ece4ff; }
 .zr-scroll-speed-label { color: rgba(255, 255, 255, 0.8); font-size: 12px; min-width: 70px; text-align: right; }
-.zr-scroll-keys { color: #d9c2ff; font-size: 12px; }
+.zr-scroll-key { spacing: 10px; }
+.zr-scroll-key-label { color: #ece4ff; }
+.zr-scroll-key-hint { color: rgba(185, 140, 255, 0.7); font-size: 11px; }
+.zr-scroll-key.zr-scroll-capturing { background-color: rgba(139, 92, 246, 0.35); }
+.zr-scroll-key.zr-scroll-capturing .zr-scroll-key-label { color: #ffffff; font-weight: bold; }
 
 .zr-dc-me {
   border-radius: 99px;

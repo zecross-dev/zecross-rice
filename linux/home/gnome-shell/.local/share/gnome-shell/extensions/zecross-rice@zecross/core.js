@@ -1941,10 +1941,19 @@ class ScrollIndicator extends PanelMenu.Button {
             this._modeItems[mode] = it;
             this.menu.addMenuItem(it);
         }
-        this._keysItem = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
-        this._keysItem.add_style_class_name('zr-scroll-keys');
-        this._keysItem.label.clutter_text.line_wrap = true;
-        this.menu.addMenuItem(this._keysItem);
+        // un raccourci par sens : clic, puis appui sur la touche ou le bouton de souris voulu
+        this._keyItems = {};
+        for (const dir of ['up', 'down']) {
+            const it = new DcToggleItem({style_class: 'zr-scroll-key'});
+            it._label = new St.Label({style_class: 'zr-scroll-key-label', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+            it._label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            it._hint = new St.Label({text: 'changer', style_class: 'zr-scroll-key-hint', y_align: Clutter.ActorAlign.CENTER});
+            it.add_child(it._label);
+            it.add_child(it._hint);
+            it._onToggle = () => (this._capturing === dir ? this._stopCapture() : this._startCapture(dir));
+            this._keyItems[dir] = it;
+            this.menu.addMenuItem(it);
+        }
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         const settings = new PopupMenu.PopupMenuItem('Réglages de zscroll…');
@@ -1962,7 +1971,11 @@ class ScrollIndicator extends PanelMenu.Button {
         this._status.label.clutter_text.line_wrap = true;
         this.menu.addMenuItem(this._status);
 
-        this.menu.connect('open-state-changed', () => this._syncPause());
+        this.menu.connect('open-state-changed', (_m, open) => {
+            if (!open)
+                this._stopCapture();
+            this._syncPause();
+        });
         this._hookClicks();
         this._accelIds = [
             global.display.connect('accelerator-activated', (_d, action) => this._onAccel(action, true)),
@@ -2036,7 +2049,9 @@ class ScrollIndicator extends PanelMenu.Button {
     _syncHotkeys() {
         const st = this._state;
         for (const dir of ['up', 'down']) {
-            const accel = (!st.hotkeys_native && st.hotkeys?.[dir]?.gtk) || null;
+            // « native » : zscroll l'écoute lui-même (bouton de souris, ou Windows)
+            const h = st.hotkeys?.[dir];
+            const accel = (h && !h.native && h.gtk) || null;
             const cur = this._grabs[dir];
             if ((cur?.accel ?? null) === accel)
                 continue;
@@ -2076,6 +2091,87 @@ class ScrollIndicator extends PanelMenu.Button {
         } else if (this._held?.dir === dir) {
             this._release();
         }
+    }
+
+    // ------------------------------------------------------------ capture d'un raccourci
+    // Menu ouvert : la scène reçoit tout en premier (phase de capture), touches comme clics.
+    _startCapture(dir) {
+        this._stopCapture();
+        this._capturing = dir;
+        this._captureId = global.stage.connect('captured-event', (_a, ev) => this._onCaptureEvent(ev));
+        this._render();
+    }
+
+    _stopCapture() {
+        if (this._captureId)
+            global.stage.disconnect(this._captureId);
+        this._captureId = 0;
+        if (this._capturing) {
+            this._capturing = null;
+            this._render();
+        }
+    }
+
+    _onCaptureEvent(ev) {
+        const type = ev.type();
+        if (type === Clutter.EventType.BUTTON_PRESS) {
+            // Mutter : BTN_SIDE = 8, BTN_EXTRA = 9, BTN_FORWARD = 10, BTN_BACK = 11
+            const btn = {8: 'Mouse4', 11: 'Mouse4', 9: 'Mouse5', 10: 'Mouse5'}[ev.get_button()];
+            if (!btn)
+                return Clutter.EVENT_PROPAGATE; // clic normal : le menu reste utilisable
+            this._applyCapture(btn);
+            return Clutter.EVENT_STOP;
+        }
+        if (type === Clutter.EventType.BUTTON_RELEASE)
+            return [8, 9, 10, 11].includes(ev.get_button()) ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
+        if (type === Clutter.EventType.KEY_RELEASE)
+            return Clutter.EVENT_STOP;
+        if (type !== Clutter.EventType.KEY_PRESS)
+            return Clutter.EVENT_PROPAGATE;
+
+        const sym = ev.get_key_symbol();
+        if (sym === Clutter.KEY_Escape) {
+            this._stopCapture();
+            return Clutter.EVENT_STOP;
+        }
+        const K = Clutter;
+        const modifierKeys = [K.KEY_Control_L, K.KEY_Control_R, K.KEY_Shift_L, K.KEY_Shift_R, K.KEY_Alt_L, K.KEY_Alt_R,
+            K.KEY_Super_L, K.KEY_Super_R, K.KEY_Meta_L, K.KEY_Meta_R, K.KEY_ISO_Level3_Shift, K.KEY_Caps_Lock, K.KEY_Hyper_L];
+        if (modifierKeys.includes(sym))
+            return Clutter.EVENT_STOP; // on attend la touche principale
+        const named = {[K.KEY_Up]: 'Up', [K.KEY_Down]: 'Down', [K.KEY_Left]: 'Left', [K.KEY_Right]: 'Right',
+            [K.KEY_Page_Up]: 'PageUp', [K.KEY_Page_Down]: 'PageDown', [K.KEY_Home]: 'Home', [K.KEY_End]: 'End',
+            [K.KEY_space]: 'Space'};
+        let key = named[sym];
+        if (!key && sym >= K.KEY_F1 && sym <= K.KEY_F1 + 23)
+            key = `F${sym - K.KEY_F1 + 1}`;
+        if (!key) {
+            const ch = String.fromCodePoint(Clutter.keysym_to_unicode(sym) || 0x20);
+            if (/^[a-z0-9]$/i.test(ch))
+                key = ch.toUpperCase();
+        }
+        if (!key) {
+            this._lastError = 'Touche non prise en charge : flèches, PageUp/Down, Début/Fin, Espace, A-Z, 0-9, F1-F24.';
+            this._render();
+            return Clutter.EVENT_STOP;
+        }
+        const st = ev.get_state(), M = Clutter.ModifierType;
+        const mods = [[M.SUPER_MASK | M.MOD4_MASK, 'Super'], [M.CONTROL_MASK, 'Ctrl'], [M.MOD1_MASK, 'Alt'], [M.SHIFT_MASK, 'Shift']]
+            .filter(([m]) => st & m).map(([, n]) => n);
+        if (!mods.length) {
+            this._lastError = 'Ajoute Ctrl, Alt, Shift ou Super à la touche (ou utilise un bouton latéral de la souris).';
+            this._render();
+            return Clutter.EVENT_STOP;
+        }
+        this._applyCapture([...mods, key].join('+'));
+        return Clutter.EVENT_STOP;
+    }
+
+    _applyCapture(text) {
+        const dir = this._capturing;
+        this._stopCapture();
+        this._lastError = null;
+        this._send({cmd: 'config', [dir === 'up' ? 'hotkey_up' : 'hotkey_down']: text});
     }
 
     _release() {
@@ -2218,16 +2314,23 @@ class ScrollIndicator extends PanelMenu.Button {
         for (const [mode, it] of Object.entries(this._modeItems))
             it.setOrnament(st.mode === mode ? PopupMenu.Ornament.DOT : (PopupMenu.Ornament.NO_DOT ?? PopupMenu.Ornament.NONE));
 
-        const keys = ['up', 'down'].map(d => {
-            const h = st.hotkeys?.[d];
-            if (!h)
-                return '';
-            if (h.error)
-                return `${d === 'up' ? '▲' : '▼'} invalide : ${h.error}`;
-            const taken = !st.hotkeys_native && this._grabs[d] && !this._grabs[d].action;
-            return `${d === 'up' ? '▲' : '▼'} ${h.label}${taken ? ' (déjà pris par GNOME)' : ''}`;
-        }).filter(Boolean);
-        this._keysItem.label.text = keys.join('\n');
+        for (const d of ['up', 'down']) {
+            const it = this._keyItems[d], h = st.hotkeys?.[d];
+            const arrow = d === 'up' ? '▲' : '▼';
+            const capturing = this._capturing === d;
+            if (capturing)
+                it._label.text = `${arrow}  Appuie sur la touche ou le bouton de souris…`;
+            else if (!h)
+                it._label.text = `${arrow}  —`;
+            else if (h.error)
+                it._label.text = `${arrow}  ${h.text} (invalide)`;
+            else {
+                const taken = !h.native && this._grabs[d] && !this._grabs[d].action;
+                it._label.text = `${arrow}  ${h.label}${taken ? ' — déjà pris par GNOME' : ''}`;
+            }
+            it._hint.text = capturing ? 'Échap' : 'changer';
+            cls(it, 'zr-scroll-capturing', capturing);
+        }
 
         const lines = [];
         if (!st.ok)
@@ -2237,7 +2340,7 @@ class ScrollIndicator extends PanelMenu.Button {
         if (this._lastError)
             lines.push(this._lastError);
         if (!lines.length)
-            lines.push('▲ ▼ : marche / arrêt · molette sur l\'îlot : vitesse.\nLe défilement va à la fenêtre sous le pointeur.');
+            lines.push('▲ ▼ : marche / arrêt · molette sur l\'îlot : vitesse.\nLe défilement va à la fenêtre sous le pointeur.\nRaccourci : touche avec Ctrl / Alt / Shift / Super, ou bouton latéral de souris.');
         this._status.label.text = lines.join('\n');
     }
 
@@ -2245,6 +2348,7 @@ class ScrollIndicator extends PanelMenu.Button {
         this._destroyed = true;
         this._cancel.cancel();
         this._accelIds.forEach(id => global.display.disconnect(id));
+        this._stopCapture();
         this._ungrab('up');
         this._ungrab('down');
         for (const id of [this._respawnId, this._pauseTimer, this._releaseTimer]) {

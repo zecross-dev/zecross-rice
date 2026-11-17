@@ -79,7 +79,8 @@ Quatre pilules « verre » (fond noir, contour blanc, halo) : **Activités + Spo
 
 **🖱️ Molette** *(facultatif, module [zscroll](https://github.com/zecross-dev/zscroll))* — îlot `🖱 ▲ ▼ 3,0` à droite de Discord :
 - **▲ / ▼** : défilement automatique de la fenêtre sous le pointeur (re-clic = arrêt), **molette sur l'îlot** = vitesse
-- **raccourcis** `Super+Ctrl+↑ / ↓` : *maintenir* (défile tant que c'est enfoncé) ou *bascule*
+- **raccourcis** `Super+Ctrl+↑ / ↓` ou **boutons latéraux de la souris** : *maintenir* (défile tant que c'est enfoncé) ou *bascule* ;
+  pour changer : clic sur le raccourci dans le menu, puis appui sur la touche ou le bouton voulu
 - clic sur 🖱 : vitesse, mode, raccourcis, **Réglages de zscroll…** (sa propre fenêtre)
 - les réglages appartiennent à zscroll (`~/.config/zscroll/config.toml`) : changés dans l'îlot, la fenêtre ou
   `zscroll config set`, ils se mettent à jour partout
