@@ -1059,7 +1059,7 @@ class PanelIslands {
         this._laterId = 0;
         const panel = Main.panel;
         this._boxes = [panel._leftBox, panel._centerBox, panel._rightBox];
-        for (const name of ['left', 'discord', 'center', 'claude', 'system']) {
+        for (const name of ['left', 'discord', 'scroll', 'center', 'claude', 'system']) {
             const w = new St.Widget({style_class: `zr-island zr-island-${name}`, reactive: false, visible: false});
             Main.layoutManager.uiGroup.insert_child_below(w, Main.layoutManager.panelBox);
             this._islands.set(name, w);
@@ -1124,9 +1124,11 @@ class PanelIslands {
         const claude = claudeBtn?.container;
         const right = panel._rightBox.get_children();
         const discordBtn = panel.statusArea['zr-discord'];
+        const scrollBtn = panel.statusArea['zr-scroll'];
         const groups = {
-            left: panel._leftBox.get_children().filter(c => c !== discordBtn?.container),
+            left: panel._leftBox.get_children().filter(c => c !== discordBtn?.container && c !== scrollBtn?.container),
             discord: discordBtn ? [discordBtn] : [],
+            scroll: scrollBtn ? [scrollBtn] : [],
             center: panel._centerBox.get_children(),
             // le bouton (sans sa marge) : la marge CSS crée l'espace entre les deux îlots de droite
             claude: claudeBtn ? [claudeBtn] : [],
@@ -1861,6 +1863,401 @@ class DiscordIndicator extends PanelMenu.Button {
     }
 });
 
+// --------------------------------------------------------- Îlot molette (zscroll)
+
+// La simulation de molette est un projet à part (modules/zscroll, sous-module git facultatif) :
+// l'îlot n'existe que si ~/.local/bin/zscroll est installé. Il pilote son mode « daemon »
+// (une commande JSON par ligne sur stdin, une ligne d'état JSON par changement sur stdout).
+// Les réglages (vitesse, mode, raccourcis) appartiennent à zscroll (config.toml) : la fenêtre
+// « zscroll settings » et ce menu les modifient tous les deux, le démon republie l'état.
+const ZSCROLL_BIN = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'zscroll']);
+const SCROLL_MIN = 0.2, SCROLL_MAX = 40; // crans par seconde (bornes de zscroll)
+const fmtSpeed = s => (s < 10 ? s.toFixed(1) : s.toFixed(0)).replace('.', ',');
+
+// modificateurs d'un accélérateur GTK -> groupes de masques Clutter (chaque groupe doit être tenu)
+function acceleratorMods(accel) {
+    const M = Clutter.ModifierType;
+    const groups = [];
+    if (accel.includes('<Super>'))
+        groups.push(M.SUPER_MASK | M.MOD4_MASK);
+    if (accel.includes('<Control>'))
+        groups.push(M.CONTROL_MASK);
+    if (accel.includes('<Alt>'))
+        groups.push(M.MOD1_MASK);
+    if (accel.includes('<Shift>'))
+        groups.push(M.SHIFT_MASK);
+    return groups;
+}
+
+const ScrollIndicator = GObject.registerClass(
+class ScrollIndicator extends PanelMenu.Button {
+    _init() {
+        super._init(0.5, 'Molette');
+        this.add_style_class_name('zr-scroll-button');
+        this._state = {ok: false, reason: 'starting', running: false, paused: false, speed: 3, dir: 'down', mode: 'hold'};
+        this._paused = false; // dernière pause demandée au démon
+        this._pausedAt = 0;
+        this._grabs = {up: null, down: null}; // raccourcis pris auprès de Mutter
+        this._held = null; // {dir, groups} : raccourci enfoncé
+
+        // ---- barre : 🖱 ▲ ▼ vitesse
+        const box = new St.BoxLayout({style_class: 'zr-scroll-box', y_align: Clutter.ActorAlign.CENTER});
+        this._icon = new St.Icon({icon_name: 'input-mouse-symbolic', style_class: 'zr-scroll-icon'});
+        const arrow = icon => new St.Bin({style_class: 'zr-scroll-arrow', reactive: true, track_hover: true,
+            y_align: Clutter.ActorAlign.CENTER, child: new St.Icon({icon_name: icon, style_class: 'zr-scroll-arrow-icon'})});
+        this._upBtn = arrow('go-up-symbolic');
+        this._downBtn = arrow('go-down-symbolic');
+        this._label = new St.Label({style_class: 'zr-scroll-label', y_align: Clutter.ActorAlign.CENTER});
+        for (const w of [this._icon, this._upBtn, this._downBtn, this._label])
+            box.add_child(w);
+        this.add_child(box);
+
+        // ---- menu : mode, vitesse, raccourcis, réglages
+        this.menu.box.add_style_class_name('zr-scroll-menu');
+        this._header = new PopupMenu.PopupMenuItem('Molette', {reactive: false, can_focus: false});
+        this._header.add_style_class_name('zr-dc-header');
+        this.menu.addMenuItem(this._header);
+
+        const speedItem = new PopupMenu.PopupBaseMenuItem({activate: false, style_class: 'zr-scroll-speed'});
+        speedItem.add_child(new St.Label({text: 'Vitesse', style_class: 'zr-scroll-speed-title', y_align: Clutter.ActorAlign.CENTER}));
+        this._slider = new Slider.Slider(this._toSlider(3));
+        this._slider.x_expand = true;
+        this._slider.connect('notify::value', () => {
+            if (!this._syncing)
+                this._setSpeed(this._fromSlider(this._slider.value));
+        });
+        speedItem.add_child(this._slider);
+        this._speedLabel = new St.Label({style_class: 'zr-scroll-speed-label', y_align: Clutter.ActorAlign.CENTER});
+        speedItem.add_child(this._speedLabel);
+        this.menu.addMenuItem(speedItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem('Raccourcis clavier'));
+        this._modeItems = {};
+        for (const [mode, text] of [['hold', 'Maintenir : défile tant que la touche est enfoncée'],
+            ['toggle', 'Bascule : un appui démarre, un autre arrête']]) {
+            const it = new DcToggleItem();
+            it.add_child(new St.Label({text, style_class: 'zr-dc-action-label', y_align: Clutter.ActorAlign.CENTER}));
+            it._onToggle = () => this._send({cmd: 'config', mode});
+            this._modeItems[mode] = it;
+            this.menu.addMenuItem(it);
+        }
+        this._keysItem = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
+        this._keysItem.add_style_class_name('zr-scroll-keys');
+        this._keysItem.label.clutter_text.line_wrap = true;
+        this.menu.addMenuItem(this._keysItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const settings = new PopupMenu.PopupMenuItem('Réglages de zscroll…');
+        settings.connect('activate', () => {
+            try {
+                Gio.Subprocess.new([ZSCROLL_BIN, 'settings'], Gio.SubprocessFlags.NONE);
+            } catch (e) {
+                logError(e, 'zecross-rice: zscroll settings');
+            }
+        });
+        this.menu.addMenuItem(settings);
+
+        this._status = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
+        this._status.add_style_class_name('zr-dc-status');
+        this._status.label.clutter_text.line_wrap = true;
+        this.menu.addMenuItem(this._status);
+
+        this.menu.connect('open-state-changed', () => this._syncPause());
+        this._hookClicks();
+        this._accelIds = [
+            global.display.connect('accelerator-activated', (_d, action) => this._onAccel(action, true)),
+        ];
+        // relâchement signalé par Mutter (récent) ; sinon on surveille les modificateurs
+        if (GObject.signal_lookup('accelerator-deactivated', Meta.Display.$gtype))
+            this._accelIds.push(global.display.connect('accelerator-deactivated', (_d, action) => this._onAccel(action, false)));
+        this._cancel = new Gio.Cancellable();
+        this._spawn();
+        this._render();
+    }
+
+    _toSlider(s) {
+        return Math.log(Math.min(Math.max(s, SCROLL_MIN), SCROLL_MAX) / SCROLL_MIN) / Math.log(SCROLL_MAX / SCROLL_MIN);
+    }
+
+    _fromSlider(v) {
+        return SCROLL_MIN * Math.pow(SCROLL_MAX / SCROLL_MIN, v);
+    }
+
+    // ▲ / ▼ : marche / arrêt dans ce sens ; ailleurs (icône, vitesse) ou clic droit : menu ;
+    // molette sur l'îlot : vitesse. GNOME 46-49 (vfunc_event) comme 50+ (ClickGesture) ouvrent
+    // le menu via menu.toggle() : on l'intercepte là, d'après le bouton et la position du clic.
+    _hookClicks() {
+        const toggleMenu = this.menu.toggle.bind(this.menu);
+        const inside = (w, x, y) => {
+            const r = w.get_transformed_extents();
+            return x >= r.get_x() && x < r.get_x() + r.get_width() && y >= r.get_y() && y < r.get_y() + r.get_height();
+        };
+        this.menu.toggle = () => {
+            const ev = Clutter.get_current_event();
+            if (this._state.ok && !this.menu.isOpen && ev?.type() === Clutter.EventType.BUTTON_PRESS &&
+                ev.get_button() === Clutter.BUTTON_PRIMARY) {
+                const [x, y] = ev.get_coords();
+                for (const [w, dir] of [[this._upBtn, 'up'], [this._downBtn, 'down']]) {
+                    if (inside(w, x, y)) {
+                        this._send({cmd: 'toggle', dir});
+                        return;
+                    }
+                }
+            }
+            toggleMenu();
+        };
+        this.connect('scroll-event', (_a, event) => this._onScroll(event));
+    }
+
+    _onScroll(event) {
+        // nos propres crans simulés (avant que la pause ait pris effet) ne doivent pas régler la vitesse
+        if (this._state.running && (!this._paused || GLib.get_monotonic_time() - this._pausedAt < 250000))
+            return Clutter.EVENT_STOP;
+        let dy = 0;
+        switch (event.get_scroll_direction()) {
+        case Clutter.ScrollDirection.UP: dy = 1; break;
+        case Clutter.ScrollDirection.DOWN: dy = -1; break;
+        case Clutter.ScrollDirection.SMOOTH: dy = -event.get_scroll_delta()[1]; break;
+        default: return Clutter.EVENT_STOP;
+        }
+        this._setSpeed(this._state.speed * Math.pow(1.15, dy));
+        return Clutter.EVENT_STOP;
+    }
+
+    _setSpeed(s) {
+        this._state.speed = Math.min(Math.max(s, SCROLL_MIN), SCROLL_MAX);
+        this._send({cmd: 'set', speed: Math.round(this._state.speed * 10) / 10});
+        this._render();
+    }
+
+    // ------------------------------------------------------------ raccourcis clavier
+    // Sous Linux, une appli ne peut pas capter le clavier : le démon nous donne l'accélérateur,
+    // on le prend auprès de Mutter et on lui renvoie appui / relâchement ({cmd: 'key'}).
+    _syncHotkeys() {
+        const st = this._state;
+        for (const dir of ['up', 'down']) {
+            const accel = (!st.hotkeys_native && st.hotkeys?.[dir]?.gtk) || null;
+            const cur = this._grabs[dir];
+            if ((cur?.accel ?? null) === accel)
+                continue;
+            this._ungrab(dir);
+            if (!accel)
+                continue;
+            const action = global.display.grab_accelerator(accel, Meta.KeyBindingFlags.NONE);
+            if (action === Meta.KeyBindingAction.NONE) {
+                this._grabs[dir] = {accel, action: 0}; // déjà pris : on ne réessaie pas en boucle
+                continue;
+            }
+            const name = Meta.external_binding_name_for_action(action);
+            Main.wm.allowKeybinding(name, Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW);
+            this._grabs[dir] = {accel, action, name, groups: acceleratorMods(accel)};
+        }
+    }
+
+    _ungrab(dir) {
+        const g = this._grabs[dir];
+        if (g?.action) {
+            global.display.ungrab_accelerator(g.action);
+            Main.wm.allowKeybinding(g.name, Shell.ActionMode.NONE);
+        }
+        this._grabs[dir] = null;
+    }
+
+    _onAccel(action, pressed) {
+        const dir = ['up', 'down'].find(d => this._grabs[d]?.action === action);
+        if (!dir)
+            return;
+        if (pressed) {
+            if (this._held)
+                return; // répétition automatique de la touche
+            this._held = {dir, groups: this._grabs[dir].groups};
+            this._send({cmd: 'key', dir, on: true});
+            this._watchRelease();
+        } else if (this._held?.dir === dir) {
+            this._release();
+        }
+    }
+
+    _release() {
+        if (!this._held)
+            return;
+        this._send({cmd: 'key', dir: this._held.dir, on: false});
+        this._held = null;
+    }
+
+    // filet de sécurité : relâcher un modificateur du raccourci vaut relâchement
+    _watchRelease() {
+        if (this._releaseTimer)
+            return;
+        this._releaseTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
+            if (this._held) {
+                const mods = global.get_pointer()[2];
+                if (this._held.groups.every(g => mods & g))
+                    return GLib.SOURCE_CONTINUE;
+                this._release();
+            }
+            this._releaseTimer = 0;
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    // ------------------------------------------------------------ pause
+    // Le défilement va sous le pointeur : on le suspend quand le pointeur est sur la barre,
+    // quand un menu de la barre est ouvert ou pendant la vue d'ensemble.
+    _shouldPause() {
+        if (this.menu.isOpen || Main.panel.menuManager.activeMenu || Main.overview.visible)
+            return true;
+        const [x, y] = global.get_pointer();
+        const r = Main.layoutManager.panelBox.get_transformed_extents();
+        return x >= r.get_x() && x < r.get_x() + r.get_width() && y >= r.get_y() && y < r.get_y() + r.get_height();
+    }
+
+    _syncPause() {
+        const want = this._state.running && this._shouldPause();
+        if (want !== this._paused) {
+            this._paused = want;
+            if (want)
+                this._pausedAt = GLib.get_monotonic_time();
+            this._send({cmd: 'pause', on: want});
+        }
+        if (this._state.running && !this._pauseTimer) {
+            this._pauseTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 40, () => {
+                this._syncPause();
+                if (this._state.running)
+                    return GLib.SOURCE_CONTINUE;
+                this._pauseTimer = 0;
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+    }
+
+    // ------------------------------------------------------------ démon
+    _spawn() {
+        if (this._destroyed)
+            return;
+        try {
+            this._proc = Gio.Subprocess.new([ZSCROLL_BIN, 'daemon'],
+                Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+        } catch (_e) {
+            this._state = {...this._state, ok: false, running: false, reason: 'missing', message: `zscroll introuvable (${ZSCROLL_BIN})`};
+            this._render();
+            return;
+        }
+        this._paused = false;
+        this._stdin = this._proc.get_stdin_pipe();
+        this._reader = new Gio.DataInputStream({base_stream: this._proc.get_stdout_pipe()});
+        this._readLine();
+    }
+
+    _readLine() {
+        this._reader.read_line_async(GLib.PRIORITY_DEFAULT, this._cancel, (stream, res) => {
+            let line;
+            try {
+                [line] = stream.read_line_finish_utf8(res);
+            } catch (_e) {
+                return; // annulé
+            }
+            if (line === null) {
+                this._stdin = null;
+                this._held = null;
+                this._state = {...this._state, ok: false, running: false, reason: 'offline', message: 'zscroll s\'est arrêté, relance…'};
+                this._render();
+                this._respawnId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
+                    this._respawnId = 0;
+                    this._spawn();
+                    return GLib.SOURCE_REMOVE;
+                });
+                return;
+            }
+            try {
+                const msg = JSON.parse(line);
+                if (msg.type === 'state') {
+                    this._state = msg;
+                    this._lastError = null;
+                    this._syncHotkeys();
+                    this._render();
+                    this._syncPause();
+                } else if (msg.type === 'error') {
+                    this._lastError = msg.message;
+                    this._render();
+                }
+            } catch (e) {
+                logError(e, 'zecross-rice: message zscroll invalide');
+            }
+            this._readLine();
+        });
+    }
+
+    _send(obj) {
+        if (!this._stdin)
+            return;
+        const bytes = new TextEncoder().encode(`${JSON.stringify(obj)}\n`);
+        this._stdin.write_bytes_async(new GLib.Bytes(bytes), GLib.PRIORITY_DEFAULT, null, (s, r) => {
+            try {
+                s.write_bytes_finish(r);
+            } catch (_e) {}
+        });
+    }
+
+    // ------------------------------------------------------------ affichage
+    _render() {
+        const st = this._state;
+        const run = st.ok && st.running;
+        const cls = (w, name, on) => on ? w.add_style_class_name(name) : w.remove_style_class_name(name);
+        cls(this, 'zr-scroll-on', run);
+        cls(this, 'zr-scroll-paused', run && st.paused);
+        cls(this, 'zr-scroll-off', !st.ok);
+        cls(this._upBtn, 'zr-scroll-active', run && st.dir === 'up');
+        cls(this._downBtn, 'zr-scroll-active', run && st.dir === 'down');
+        this._label.text = fmtSpeed(st.speed);
+
+        this._syncing = true;
+        this._slider.value = this._toSlider(st.speed);
+        this._syncing = false;
+        this._speedLabel.text = `${fmtSpeed(st.speed)} crans/s`;
+        for (const [mode, it] of Object.entries(this._modeItems))
+            it.setOrnament(st.mode === mode ? PopupMenu.Ornament.DOT : (PopupMenu.Ornament.NO_DOT ?? PopupMenu.Ornament.NONE));
+
+        const keys = ['up', 'down'].map(d => {
+            const h = st.hotkeys?.[d];
+            if (!h)
+                return '';
+            if (h.error)
+                return `${d === 'up' ? '▲' : '▼'} invalide : ${h.error}`;
+            const taken = !st.hotkeys_native && this._grabs[d] && !this._grabs[d].action;
+            return `${d === 'up' ? '▲' : '▼'} ${h.label}${taken ? ' (déjà pris par GNOME)' : ''}`;
+        }).filter(Boolean);
+        this._keysItem.label.text = keys.join('\n');
+
+        const lines = [];
+        if (!st.ok)
+            lines.push(st.message ?? 'zscroll démarre…');
+        if (st.config_error)
+            lines.push(`config.toml illisible : ${st.config_error}`);
+        if (this._lastError)
+            lines.push(this._lastError);
+        if (!lines.length)
+            lines.push('▲ ▼ : marche / arrêt · molette sur l\'îlot : vitesse.\nLe défilement va à la fenêtre sous le pointeur.');
+        this._status.label.text = lines.join('\n');
+    }
+
+    destroy() {
+        this._destroyed = true;
+        this._cancel.cancel();
+        this._accelIds.forEach(id => global.display.disconnect(id));
+        this._ungrab('up');
+        this._ungrab('down');
+        for (const id of [this._respawnId, this._pauseTimer, this._releaseTimer]) {
+            if (id)
+                GLib.source_remove(id);
+        }
+        try {
+            this._proc?.force_exit();
+        } catch (_e) {}
+        super.destroy();
+    }
+});
+
 // ---------------------------------------------------------------- Extension
 
 // Fenêtre active (hors Kando / bureau) écrite dans $XDG_RUNTIME_DIR/zecross-rice-focus.json
@@ -2004,6 +2401,11 @@ export default class ZecrossRiceCore {
         Main.panel.addToStatusArea('zr-spotify', this._spotify, 1, 'left');
         this._discord = new DiscordIndicator();
         Main.panel.addToStatusArea('zr-discord', this._discord, 2, 'left');
+        // îlot molette : seulement si le module facultatif zscroll est installé
+        if (GLib.file_test(ZSCROLL_BIN, GLib.FileTest.IS_EXECUTABLE)) {
+            this._scroll = new ScrollIndicator();
+            Main.panel.addToStatusArea('zr-scroll', this._scroll, 3, 'left');
+        }
         this._islands = new PanelIslands();
 
         this._dockSearch = new DockSearch(() => this.openLauncher());
@@ -2070,6 +2472,8 @@ export default class ZecrossRiceCore {
         this._spotify = null;
         this._discord?.destroy();
         this._discord = null;
+        this._scroll?.destroy();
+        this._scroll = null;
         this._indicator?.destroy();
         this._indicator = null;
         this._settings = null;

@@ -593,6 +593,27 @@
 .zr-dc-join-btn:hover, .zr-dc-join-btn:focus { background-color: rgba(139, 92, 246, 0.8); border-color: #ffffff; }
 .zr-dc-status { color: rgba(255, 255, 255, 0.55); font-size: 12px; }
 
+/* ------------------------------------------------ Îlot molette (zscroll) ---- */
+#panel .zr-scroll-button { margin-left: 14px; }
+.zr-scroll-box { spacing: 4px; }
+.zr-scroll-icon { icon-size: 16px; margin-right: 2px; }
+.zr-scroll-arrow { border-radius: 99px; padding: 2px 4px; }
+.zr-scroll-arrow:hover { background-color: rgba(185, 140, 255, 0.28); }
+.zr-scroll-arrow-icon { icon-size: 14px; color: #b98cff; }
+.zr-scroll-arrow.zr-scroll-active { background-color: rgba(139, 92, 246, 0.6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+.zr-scroll-arrow.zr-scroll-active .zr-scroll-arrow-icon { color: #ffffff; }
+.zr-scroll-label { color: #d9c2ff; font-feature-settings: "tnum"; min-width: 24px; }
+#panel .zr-scroll-button.zr-scroll-on .zr-scroll-icon,
+#panel .zr-scroll-button.zr-scroll-on .zr-scroll-label { color: #ffffff; }
+#panel .zr-scroll-button.zr-scroll-paused .zr-scroll-arrow.zr-scroll-active { background-color: rgba(139, 92, 246, 0.25); }
+#panel .zr-scroll-button.zr-scroll-off .zr-scroll-icon,
+#panel .zr-scroll-button.zr-scroll-off .zr-scroll-arrow-icon { color: rgba(185, 140, 255, 0.4); }
+.zr-scroll-menu { min-width: 340px; }
+.zr-scroll-speed { spacing: 10px; }
+.zr-scroll-speed-title { color: #ece4ff; }
+.zr-scroll-speed-label { color: rgba(255, 255, 255, 0.8); font-size: 12px; min-width: 70px; text-align: right; }
+.zr-scroll-keys { color: #d9c2ff; font-size: 12px; }
+
 .zr-dc-me {
   border-radius: 99px;
   border: 2px solid rgba(255, 255, 255, 0.85);

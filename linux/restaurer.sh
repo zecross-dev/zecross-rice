@@ -21,4 +21,6 @@ done
 sed -i '/# >>> zecross-rice prompt >>>/,/# <<< zecross-rice prompt <<</d; /# zecross-rice prompt$/d' ~/.bashrc
 rm -f ~/.config/autostart/kando.desktop ~/.config/autostart/zwheel.desktop
 pkill -x zwheel 2>/dev/null || true
+# module facultatif zscroll : binaire et règle udev retirés
+[ -x "$LINUX/../modules/zscroll/install.sh" ] && "$LINUX/../modules/zscroll/install.sh" --uninstall || rm -f "$HOME/.local/bin/zscroll"
 echo "Restauré depuis $(basename "$LAST"). Recharge GNOME (Alt+F2 r sous X11, ou déconnexion sous Wayland)."

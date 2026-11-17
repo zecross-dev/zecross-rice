@@ -5,6 +5,8 @@
 #   ./install.sh --kando      + roue Kando (clic molette maintenu) et sous-menu Spotify
 #   ./install.sh --links      seulement (re)faire les liens des dotfiles (après un git pull)
 #
+# Module facultatif : modules/zscroll (sous-module git, îlot « molette »), installé s'il est présent.
+#
 # Dotfiles : home/<paquet>/ reproduit $HOME (format GNU Stow). Chaque fichier est lié par
 # un lien symbolique (équivalent de « stow --no-folding -d home -t ~ <paquet> ») : modifier
 # la config sur la machine, c'est modifier le dépôt. Un fichier déjà présent est d'abord
@@ -89,6 +91,17 @@ if command -v cargo >/dev/null; then
   fi
 else
   warn "cargo absent : installe Rust (https://rustup.rs) puis relance pour la recherche d'applis."
+fi
+
+# ------------------------------------------------------------ module facultatif : zscroll
+# Projet à part (sous-module git modules/zscroll) : îlot « molette » à droite de Discord.
+# Sans le sous-module, le rice s'installe normalement et l'îlot n'apparaît pas.
+ZSCROLL="$LINUX/../modules/zscroll"
+if [ -x "$ZSCROLL/install.sh" ]; then
+  say "Module zscroll (molette simulée, îlot à droite de Discord)"
+  "$ZSCROLL/install.sh" || warn "zscroll non installé : pas d'îlot molette."
+else
+  warn "Module zscroll absent (îlot molette désactivé). Pour l'ajouter : git submodule update --init modules/zscroll"
 fi
 
 # ------------------------------------------------------------ extension GNOME

@@ -77,6 +77,14 @@ Quatre pilules « verre » (fond noir, contour blanc, halo) : **Activités + Spo
 </tr>
 </table>
 
+**🖱️ Molette** *(facultatif, module [zscroll](https://github.com/zecross-dev/zscroll))* — îlot `🖱 ▲ ▼ 3,0` à droite de Discord :
+- **▲ / ▼** : défilement automatique de la fenêtre sous le pointeur (re-clic = arrêt), **molette sur l'îlot** = vitesse
+- **raccourcis** `Super+Ctrl+↑ / ↓` : *maintenir* (défile tant que c'est enfoncé) ou *bascule*
+- clic sur 🖱 : vitesse, mode, raccourcis, **Réglages de zscroll…** (sa propre fenêtre)
+- les réglages appartiennent à zscroll (`~/.config/zscroll/config.toml`) : changés dans l'îlot, la fenêtre ou
+  `zscroll config set`, ils se mettent à jour partout
+- suspendu tout seul quand le pointeur passe sur la barre ; sans le sous-module, l'îlot n'existe pas
+
 **🤖 Claude** — utilisation 5 h et hebdo (lit `~/.claude/.credentials.json`, jamais copié), jauges violettes → rose → rouge.
 
 ### Recherche d'applis
@@ -115,12 +123,15 @@ Clic molette **maintenu** (un clic court garde son rôle : coller, nouvel onglet
 ## 📦 Installation
 
 ```bash
-git clone git@github.com:zecross-dev/zecross-rice.git ~/zecross-rice
+git clone --recurse-submodules git@github.com:zecross-dev/zecross-rice.git ~/zecross-rice
 cd ~/zecross-rice
 ./install.sh            # dotfiles + tout sauf la roue
 ./install.sh --kando    # + roue Kando (et zwheel)
 ./install.sh --links    # seulement refaire les liens (après un git pull)
 ```
+
+`--recurse-submodules` récupère le module facultatif **zscroll** (îlot molette). Sans lui, tout le reste
+s'installe pareil ; pour l'ajouter plus tard : `git submodule update --init modules/zscroll && ./install.sh`.
 
 **Prérequis** : Ubuntu + GNOME, `python3`, `curl`, `rsync`, `unzip`.
 **Recommandé** : Rust (`rustup`) pour `zsearch` / `zwheel`, `python3-pil` pour le fond d'écran, `gh` pour le bouton Git.
@@ -128,7 +139,7 @@ cd ~/zecross-rice
 Puis : **X11** → `Alt+F2`, `r`, Entrée · **Wayland** → se déconnecter / reconnecter.
 
 > `install.sh` demande `sudo` deux fois sous Wayland : règle udev de `zwheel` (lecture de la souris)
-> et règle udev Bluetooth (pas de mise en veille de la puce).
+> et règle udev Bluetooth (pas de mise en veille de la puce). Avec zscroll : une de plus (accès à `/dev/uinput`).
 
 **Dotfiles** : les fichiers de `linux/home/<paquet>/` sont **liés** dans ton dossier perso (format GNU Stow,
 liens fichier par fichier). Modifier ta config, c'est modifier le dépôt : un `git diff` suffit pour voir ce qui a changé.
@@ -209,6 +220,7 @@ linux/
 ├── src/zsearch/  src/zwheel/      sources Rust (lanceur, roue au clic molette)
 ├── install.sh                     liens, compilation, réglages (--kando, --links)
 └── restaurer.sh                   retour arrière
+modules/zscroll/                   sous-module facultatif : molette simulée (Rust, Linux + Windows)
 ```
 
 <div align="center">

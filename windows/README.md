@@ -48,6 +48,7 @@ accent `#8b5cf6`, terminal `#0d0a14` / `#ece4ff`. Coins : 15 px (barre), 22 px (
 | Widget Claude (5 h · hebdo) | lit `~/.claude/.credentials.json` | lit `%USERPROFILE%\.claude\.credentials.json` |
 | Dock à gauche + 🔍 | Ubuntu Dock | Seelen UI ou équivalent |
 | Recherche d'applis | `zsearch` | `Win+F` |
+| Îlot molette (facultatif) | `zscroll daemon` (uinput) | **`zscroll daemon` tel quel** (SendInput) — `modules/zscroll/install.ps1` |
 | Sélecteur de terminaux | `Super+Espace` | `Win+Espace` (AutoHotkey v2) |
 | Roue Kando + bouton Git (GitHub / GitLab) + JetBrains + Spotify | `zwheel` | AutoHotkey v2 + IPC Kando |
 | Coins arrondis, espace autour des fenêtres | shader GNOME | natif Windows 11 |

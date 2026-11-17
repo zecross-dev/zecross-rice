@@ -26,6 +26,7 @@ Spotify, vocaux Discord des amis, utilisation de Claude.
 | 🎵 **Spotify** | pochette, ⏮ ⏯ ⏭, volume vertical, barre de progression cliquable |
 | 🎧 **Discord** | vocaux où sont tes amis, pdp, ☆ amis, 📌 vocaux épinglés, rejoindre en un clic |
 | 🤖 **Claude** | utilisation 5 h / hebdo |
+| 🖱️ **Molette** | ▲ ▼ défilement auto, vitesse, raccourcis maintenir / bascule — module à part [zscroll](https://github.com/zecross-dev/zscroll), facultatif |
 | 🔍 **Lanceur** | tolère les fautes, ignore les accents, apprend tes habitudes |
 | 🛞 **Roue Kando** | applis, JetBrains, bouton Git (GitHub / GitLab : PR, MR ou branche), Spotify |
 | 🖥️ **Terminal** | palette *Zecross Violet*, prompt sur deux lignes, sélecteur `Super/Win+Espace` |
@@ -33,7 +34,7 @@ Spotify, vocaux Discord des amis, utilisation de Claude.
 ## Installation rapide (Linux)
 
 ```bash
-git clone git@github.com:zecross-dev/zecross-rice.git ~/zecross-rice
+git clone --recurse-submodules git@github.com:zecross-dev/zecross-rice.git ~/zecross-rice
 cd ~/zecross-rice && ./install.sh --kando     # lance linux/install.sh
 ```
 
@@ -55,6 +56,7 @@ linux/
 ├── install.sh     liens + compilation + réglages   (--links : juste les liens)
 └── restaurer.sh   retour arrière
 windows/           version Windows (en cours)
+modules/zscroll/   sous-module facultatif : molette simulée (projet à part, Linux + Windows)
 assets/            captures
 ```
 
