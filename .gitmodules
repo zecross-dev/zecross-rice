@@ -1,0 +1,3 @@
+[submodule "zscroll"]
+	path = modules/zscroll
+	url = git@github.com:zecross-dev/zscroll.git

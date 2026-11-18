@@ -1,0 +1,388 @@
+{
+  "version": "3.0.1",
+  "menus": [
+    {
+      "root": {
+        "name": "Applications",
+        "icon": "apps",
+        "iconTheme": "material-symbols-rounded",
+        "type": "root",
+        "activateWorkflow": {
+          "actions": []
+        },
+        "children": [
+          {
+            "name": "Terminal",
+            "icon": "org.gnome.Terminal.png",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "T",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch org.gnome.Terminal.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "Fichiers",
+            "icon": "org.gnome.Nautilus.png",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "F",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch org.gnome.Nautilus.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "Chrome",
+            "icon": "google-chrome.png",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "C",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch google-chrome.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "Opera",
+            "icon": "opera.png",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "O",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch opera.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "Discord",
+            "icon": "discord.png",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "D",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch discord.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "name": "VS Code",
+            "icon": "code.png",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "V",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch code.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "type": "submenu",
+            "name": "JetBrains",
+            "icon": "jetbrains-toolbox.png",
+            "iconTheme": "zecross-apps",
+            "selectWorkflow": {
+              "quickSelectKey": "J",
+              "actions": []
+            },
+            "children": [
+              {
+                "name": "RustRover",
+                "icon": "jetbrains-rustrover.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "R",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-rustrover.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "IntelliJ",
+                "icon": "jetbrains-idea.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "I",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-idea.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Android Studio",
+                "icon": "jetbrains-studio.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "A",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-studio.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "Toolbox",
+                "icon": "jetbrains-toolbox.png",
+                "iconTheme": "zecross-apps",
+                "type": "button",
+                "selectWorkflow": {
+                  "quickSelectKey": "T",
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zlaunch jetbrains-toolbox.desktop {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "Minecraft",
+            "icon": "appimagekit_6549d451d30a0eb176283ec544e2.svg",
+            "iconTheme": "zecross-apps",
+            "type": "button",
+            "selectWorkflow": {
+              "quickSelectKey": "M",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zlaunch appimagekit_6549d451d30a0eb176283ec544e2c8b9-Prism_Launcher.desktop {{pointer_x}} {{pointer_y}}",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "type": "button",
+            "name": "GitHub",
+            "iconTheme": "simple-icons",
+            "icon": "github",
+            "selectWorkflow": {
+              "quickSelectKey": "G",
+              "actions": [
+                {
+                  "type": "execute-command",
+                  "command": "@HOME@/.local/bin/zgithub",
+                  "detached": true,
+                  "isolated": false
+                }
+              ]
+            }
+          },
+          {
+            "type": "submenu",
+            "name": "Spotify",
+            "iconTheme": "simple-icons-colored",
+            "icon": "spotify",
+            "selectWorkflow": {
+              "quickSelectKey": "S",
+              "actions": []
+            },
+            "children": [
+              {
+                "type": "button",
+                "name": "Ouvrir Spotify",
+                "iconTheme": "simple-icons-colored",
+                "icon": "spotify",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zspotify {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ],
+                  "quickSelectKey": "O"
+                }
+              },
+              {
+                "type": "button",
+                "name": "Lecture / Pause",
+                "iconTheme": "material-symbols-rounded",
+                "icon": "play_pause",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zspot toggle {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ],
+                  "quickSelectKey": "P"
+                }
+              },
+              {
+                "type": "button",
+                "name": "Suivant",
+                "iconTheme": "material-symbols-rounded",
+                "icon": "skip_next",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zspot next {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ],
+                  "quickSelectKey": "N"
+                }
+              },
+              {
+                "type": "button",
+                "name": "Précédent",
+                "iconTheme": "material-symbols-rounded",
+                "icon": "skip_previous",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zspot prev {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ],
+                  "quickSelectKey": "B"
+                }
+              },
+              {
+                "type": "button",
+                "name": "Titres likés",
+                "iconTheme": "material-symbols-rounded",
+                "icon": "favorite",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zspot play spotify:collection:tracks {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ],
+                  "quickSelectKey": "L"
+                }
+              },
+              {
+                "type": "button",
+                "name": "Titre au hasard",
+                "iconTheme": "material-symbols-rounded",
+                "icon": "casino",
+                "selectWorkflow": {
+                  "actions": [
+                    {
+                      "type": "execute-command",
+                      "command": "@HOME@/.local/bin/zspot random {{pointer_x}} {{pointer_y}}",
+                      "detached": true,
+                      "isolated": false
+                    }
+                  ],
+                  "quickSelectKey": "R"
+                }
+              },
+              {
+                "type": "submenu",
+                "name": "Playlists",
+                "iconTheme": "material-symbols-rounded",
+                "icon": "queue_music",
+                "selectWorkflow": {
+                  "quickSelectKey": "Y",
+                  "actions": []
+                },
+                "children": [
+                  {
+                    "type": "button",
+                    "name": "Salle",
+                    "iconTheme": "zecross-apps",
+                    "icon": "spotify-pl-5uepSSDKwGT43EdIia1JFb.jpg",
+                    "selectWorkflow": {
+                      "actions": [
+                        {
+                          "type": "execute-command",
+                          "command": "@HOME@/.local/bin/zspot play spotify:playlist:5uepSSDKwGT43EdIia1JFb {{pointer_x}} {{pointer_y}}",
+                          "detached": true,
+                          "isolated": false
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "shortcut": "",
+      "shortcutID": "zecross-apps",
+      "useFixedPosition": false,
+      "fixedMenuPosition": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "anchored": false,
+      "hoverMode": false,
+      "conditions": {},
+      "tags": []
+    }
+  ],
+  "collections": []
+}

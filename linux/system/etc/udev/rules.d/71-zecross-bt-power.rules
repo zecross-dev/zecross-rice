@@ -1,0 +1,3 @@
+# zecross-rice : la puce Bluetooth (classe USB e0/01/01) ne se met jamais en veille.
+# Sur les puces Intel (AX2xx…), la mise en veille USB coupe l'audio Bluetooth.
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{bDeviceClass}=="e0", ATTR{bDeviceSubClass}=="01", ATTR{bDeviceProtocol}=="01", ATTR{power/control}="on"

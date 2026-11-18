@@ -8,8 +8,8 @@
 ---
 
 Tu es mon assistant de personnalisation Windows 11. J'ai une config Linux (GNOME) que j'adore,
-dans le repo `zecross-rice` (clone à côté, lis son `README.md`, `gnome-extension/…/stylesheet.css`
-et `kando/menus.template.json` pour les détails). Je veux le **même look et les mêmes usages sur Windows**,
+dans le repo `zecross-rice` (clone à côté, lis son `README.md`, `linux/README.md`,
+`linux/home/gnome-shell/…/stylesheet.css` et `linux/setup/kando/menus.template.json` pour les détails). Je veux le **même look et les mêmes usages sur Windows**,
 avec les meilleurs outils Windows, pas une copie forcée. Réponds-moi en français.
 
 ## Règles
@@ -29,7 +29,7 @@ avec les meilleurs outils Windows, pas une copie forcée. Réponds-moi en franç
   **halo blanc** autour (`0 0 16px 2px rgba(255,255,255,0.6)`), texte/icônes **violet** `#b98cff`,
   survol `rgba(185,140,255,0.18)`, accent fort `#8b5cf6`. Coins arrondis 15 px (barre), 22 px (dock), 20 px (fenêtres).
 - Mode sombre partout, couleur d'accent Windows violette, curseur **Bibata Modern Classic** (version Windows),
-  fond d'écran : génère-le avec `wallpaper.py` du repo Linux (Python + Pillow).
+  fond d'écran : génère-le avec `linux/setup/wallpaper.py` du repo (Python + Pillow).
 
 ## Composants
 
@@ -81,7 +81,7 @@ avec les meilleurs outils Windows, pas une copie forcée. Réponds-moi en franç
      Sur Windows, `start spotify:playlist:…` suffit pour lancer une playlist.
    - Les applis lancées depuis la roue s'ouvrent **sur l'écran où j'ai ouvert la roue**.
 
-7. **Îlot Discord** (à droite du lecteur média dans la barre) : réutilise **`bin/zdiscord`** du repo Linux,
+7. **Îlot Discord** (à droite du lecteur média dans la barre) : réutilise **`linux/home/bin/.local/bin/zdiscord`** du repo,
    un script Python sans dépendance qui marche tel quel sous Windows (RPC Discord via `\\.\pipe\discord-ipc-0`).
    - Configuration : je crée une app sur https://discord.com/developers/applications (OAuth2 → redirection
      `http://localhost`), puis `python zdiscord setup` (secret saisi au clavier) et `python zdiscord login`.

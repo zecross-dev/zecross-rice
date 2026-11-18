@@ -1,0 +1,4 @@
+# zwheel (roue Kando au clic molette maintenu, Wayland) :
+# accès aux souris et à /dev/uinput pour l'utilisateur de la session active (ACL logind)
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_TOUCHPAD}!="1", TAG+="uaccess"
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
